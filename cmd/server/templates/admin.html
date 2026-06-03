@@ -1,1 +1,183 @@
-{{define "admin"}}<!doctype html><html lang="pt-BR"><head><title>Admin - SIMP</title>{{template "head" .}}</head><body>{{template "nav" .}}<main class="wrap"><section class="panel"><h1 class="screen-title">Usuários</h1><div id="users-section">{{template "users_section" .}}</div></section></main></body></html>{{end}}
+{{define "admin"}}
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SIMP — Painel Administrativo</title>
+    <meta name="description"
+        content="Painel administrativo do SIMP para gestão de usuários e visualização de atividades." />
+    <link rel="stylesheet" href="/admin.css" />
+</head>
+
+<body>
+    <div id="loader" class="hidden">⠿</div>
+
+    <!-- ── Admin Login Screen ──────────────────────────────────────── -->
+    <div id="admin-login-screen" class="hidden">
+        <div class="login-card">
+            <div class="login-header">
+                <div class="icon">🛡️</div>
+                <h2>SIMP Admin</h2>
+                <p>Área Restrita</p>
+            </div>
+            <form id="form-admin-login">
+                <div class="form-field">
+                    <label>Usuário</label>
+                    <input type="text" id="admin-username" placeholder="Seu usuário" required>
+                </div>
+                <div class="form-field">
+                    <label>Senha</label>
+                    <input type="password" id="admin-password" placeholder="••••••••" required>
+                </div>
+                <p id="admin-login-error" class="error-msg hidden"></p>
+                <button type="submit" class="btn-login">Acessar Painel</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="app" class="hidden">
+
+        <!-- ── Sidebar ─────────────────────────────────────────────── -->
+        <aside id="sidebar">
+            <div class="sidebar-logo">
+                <div class="logo-icon">📦</div>
+                <div>
+                    <div class="logo-text">SIMP</div>
+                    <div class="logo-sub">Admin</div>
+                </div>
+            </div>
+
+            <nav>
+                <a href="/admin" class="nav-item active" id="nav-users">
+                    <span class="nav-icon">👥</span> Usuários
+                </a>
+                <a href="/dashboard" class="nav-item">
+                    <span class="nav-icon">📋</span> Dashboard
+                </a>
+                <a href="/atividades" class="nav-item">
+                    <span class="nav-icon">📦</span> Atividades
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="user-badge">
+                    <div class="user-avatar" id="user-avatar">A</div>
+                    <div class="user-info">
+                        <div class="user-name" id="sidebar-username">—</div>
+                        <div class="user-role" id="sidebar-role">—</div>
+                    </div>
+                </div>
+                <button type="button" id="btn-logout">Sair da conta</button>
+            </div>
+        </aside>
+
+        <!-- ── Main ────────────────────────────────────────────────── -->
+        <div id="main">
+
+            <div class="topbar">
+                <h1 id="topbar-title">Usuários</h1>
+                <span class="tag" id="topbar-env">simp</span>
+            </div>
+
+            <div id="content">
+
+                <!-- USERS SECTION -->
+                <div id="section-users" class="section active">
+
+                    <!-- Stats -->
+                    <div class="stats-row" id="user-stats-row">
+                        <div class="stat-card">
+                            <div class="stat-icon purple">👥</div>
+                            <div>
+                                <div class="stat-value" id="stat-total">—</div>
+                                <div class="stat-label">Total de usuários</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon amber">🟡</div>
+                            <div>
+                                <div class="stat-value" id="stat-gerentes">—</div>
+                                <div class="stat-label">Gerentes</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon green">🟢</div>
+                            <div>
+                                <div class="stat-value" id="stat-conferentes">—</div>
+                                <div class="stat-label">Conferentes</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Create user form -->
+                    <div class="panel" id="panel-create-user">
+                        <div class="panel-title">Novo Usuário</div>
+                        <form id="form-create-user" autocomplete="off">
+                            <div class="form-grid">
+                                <div class="form-field">
+                                    <label for="new-username">Usuário</label>
+                                    <input id="new-username" type="text" placeholder="nome_usuario" required />
+                                </div>
+                                <div class="form-field">
+                                    <label for="new-password">Senha</label>
+                                    <input id="new-password" type="password" placeholder="••••••••" required />
+                                </div>
+                                <div class="form-field" id="new-role-wrap">
+                                    <label for="new-role">Cargo</label>
+                                    <select id="new-role">
+                                        <option value="conferente">Conferente</option>
+                                        <option value="gerente">Gerente</option>
+                                        <option value="sysadmin">Sysadmin</option>
+                                    </select>
+                                </div>
+                                <button type="submit" class="btn btn-primary">＋ Criar</button>
+                            </div>
+                            <div class="msg" id="create-msg"></div>
+                        </form>
+                    </div>
+
+                    <!-- Users table -->
+                    <div class="panel" style="padding: 0; overflow: hidden;">
+                        <div
+                            style="padding: 16px 20px; border-bottom: 1px solid var(--border); display:flex; align-items:center; justify-content:space-between;">
+                            <span class="panel-title" style="margin:0;">Usuários Cadastrados</span>
+                            <button type="button" class="btn btn-ghost" onclick="loadUsers()"
+                                style="padding:6px 12px; font-size:12px;">↻ Atualizar</button>
+                        </div>
+                        <div class="table-wrap" style="border:none; border-radius:0;">
+                            <table id="users-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Usuário</th>
+                                        <th>Cargo</th>
+                                        <th>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="users-tbody">
+                                    <tr>
+                                        <td colspan="4">
+                                            <div class="empty">Carregando…</div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ACTIVITIES SECTION removed — admin is user-management-only for sysadmin -->
+
+            </div><!-- /content -->
+        </div><!-- /main -->
+    </div><!-- /app -->
+
+    <!-- Activity Detail Modal removed — admin no longer views activities -->
+
+    <script src="/admin.js"></script>
+</body>
+
+</html>
+{{end}}

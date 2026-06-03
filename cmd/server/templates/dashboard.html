@@ -1,1 +1,214 @@
-{{define "dashboard"}}<!doctype html><html lang="pt-BR"><head><title>Dashboard - SIMP</title>{{template "head" .}}</head><body>{{template "nav" .}}<main class="wrap"><section class="stats"><div class="stat"><span class="muted">Atividades</span><br><strong>{{len .Activities}}</strong></div><div class="stat"><span class="muted">Finalizadas</span><br><strong>{{len .Activities}}</strong></div><div class="stat"><span class="muted">Usuário</span><br><strong>{{.User.Username}}</strong></div></section><section class="panel"><form class="row noprint" hx-get="/dashboard/table" hx-target="#activity-table" hx-push-url="true"><input name="filter_id[]" placeholder="ID"><input name="filter_empresa[]" placeholder="Empresa"><input name="filter_username[]" placeholder="Usuário"><button>Filtrar</button><a class="btn secondary" href="/dashboard">Limpar</a></form><div id="activity-table">{{template "activities_table" .}}</div></section><div id="modal"></div></main></body></html>{{end}}
+{{define "dashboard"}}
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SIMP — Dashboard</title>
+    <meta name="description"
+        content="Dashboard do SIMP para visualização de atividades." />
+    <link rel="stylesheet" href="/admin.css" />
+</head>
+
+<body>
+    <div id="loader" class="hidden">⠿</div>
+
+    <!-- ── Admin Login Screen ──────────────────────────────────────── -->
+    <div id="admin-login-screen" class="hidden">
+        <div class="login-card">
+            <div class="login-header">
+                <div class="icon">🛡️</div>
+                <h2>SIMP Admin</h2>
+                <p>Área Restrita</p>
+            </div>
+            <form id="form-admin-login">
+                <div class="form-field">
+                    <label>Usuário</label>
+                    <input type="text" id="admin-username" placeholder="Seu usuário" required>
+                </div>
+                <div class="form-field">
+                    <label>Senha</label>
+                    <input type="password" id="admin-password" placeholder="••••••••" required>
+                </div>
+                <p id="admin-login-error" class="error-msg hidden"></p>
+                <button type="submit" class="btn-login">Acessar Painel</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="app" class="hidden">
+
+        <!-- ── Sidebar ─────────────────────────────────────────────── -->
+        <aside id="sidebar">
+            <div class="sidebar-logo">
+                <div class="logo-icon">📦</div>
+                <div>
+                    <div class="logo-text">SIMP</div>
+                    <div class="logo-sub">Dashboard</div>
+                </div>
+            </div>
+
+            <nav>
+                <a href="/dashboard" class="nav-item active">
+                    <span class="nav-icon">📋</span> Dashboard
+                </a>
+                <a href="/atividades" class="nav-item">
+                    <span class="nav-icon">📦</span> Atividades
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="user-badge">
+                    <div class="user-avatar" id="user-avatar">A</div>
+                    <div class="user-info">
+                        <div class="user-name" id="sidebar-username">—</div>
+                        <div class="user-role" id="sidebar-role">—</div>
+                    </div>
+                </div>
+                <button type="button" id="btn-logout">Sair da conta</button>
+            </div>
+        </aside>
+
+        <!-- ── Main ────────────────────────────────────────────────── -->
+        <div id="main">
+
+            <div class="topbar">
+                <h1 id="topbar-title">Atividades</h1>
+                <span class="tag" id="topbar-env">simp</span>
+            </div>
+
+            <div id="content">
+
+                <!-- ACTIVITIES SECTION ONLY -->
+                <div id="section-activities" class="section active">
+
+                    <div class="stats-row">
+                        <div class="stat-card">
+                            <div class="stat-icon purple">📋</div>
+                            <div>
+                                <div class="stat-value" id="stat-total-act">—</div>
+                                <div class="stat-label">Total de atividades</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon green">✅</div>
+                            <div>
+                                <div class="stat-value" id="stat-finalizadas">—</div>
+                                <div class="stat-label">Finalizadas (com data)</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon amber">📦</div>
+                            <div>
+                                <div class="stat-value" id="stat-empresas-act">—</div>
+                                <div class="stat-label">Empresas distintas</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="panel" style="padding:0; overflow:hidden;">
+                        <div
+                            style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between;">
+                            <span class="panel-title" style="margin:0;">Atividades Recentes</span>
+                            <div style="display: flex; align-items: center;">
+                                <button type="button" id="btn-bulk-print" class="btn btn-ghost hidden" onclick="handleBulkPrint()"
+                                    style="padding:6px 12px; font-size:12px; margin-right: 8px;">🖨️ Imprimir Selecionados</button>
+                                <button type="button" class="btn btn-ghost" onclick="loadActivities()"
+                                    style="padding:6px 12px; font-size:12px;">↻ Atualizar</button>
+                            </div>
+                        </div>
+                        <div id="active-filters-bar" class="active-filters-bar hidden"></div>
+                        <div class="table-wrap" style="border:none; border-radius:0;">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th class="checkbox-col"><input type="checkbox" id="select-all-activities" onclick="toggleAllActivities(this.checked)"></th>
+                                        <th class="th-filterable" data-column="id" onclick="handleColumnClick('id', event)">
+                                            <span class="th-content">ID <span class="filter-icon">▼</span> <span class="sort-indicator" id="sort-id">⇅</span></span>
+                                        </th>
+                                        <th class="th-filterable" data-column="username" onclick="handleColumnClick('username', event)">
+                                            <span class="th-content">Usuário <span class="filter-icon">▼</span> <span class="sort-indicator" id="sort-username">⇅</span></span>
+                                        </th>
+                                        <th class="th-filterable" data-column="empresa" onclick="handleColumnClick('empresa', event)">
+                                            <span class="th-content">Empresa <span class="filter-icon">▼</span> <span class="sort-indicator" id="sort-empresa">⇅</span></span>
+                                        </th>
+                                        <th class="th-filterable" data-column="rua" onclick="handleColumnClick('rua', event)">
+                                            <span class="th-content">Rua <span class="filter-icon">▼</span> <span class="sort-indicator" id="sort-rua">⇅</span></span>
+                                        </th>
+                                        <th class="th-filterable" data-column="predio" onclick="handleColumnClick('predio', event)">
+                                            <span class="th-content">Prédio <span class="filter-icon">▼</span> <span class="sort-indicator" id="sort-predio">⇅</span></span>
+                                        </th>
+                                        <th class="th-filterable" data-column="dataFim" onclick="handleColumnClick('dataFim', event)">
+                                            <span class="th-content">Data Fim <span class="filter-icon">▼</span> <span class="sort-indicator" id="sort-dataFim">⇅</span></span>
+                                        </th>
+                                        <th class="th-filterable" data-column="impresso" onclick="handleColumnClick('impresso', event)">
+                                            <span class="th-content">Impresso <span class="filter-icon">▼</span> <span class="sort-indicator" id="sort-impresso">⇅</span></span>
+                                        </th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="activities-tbody">
+                                    <tr>
+                                        <td colspan="9">
+                                            <div class="empty">Carregando…</div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+            </div><!-- /content -->
+        </div><!-- /main -->
+    </div><!-- /app -->
+
+    <!-- ── Activity Detail Modal ────────────────────────────────────── -->
+    <div id="modal-history" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <div>
+                    <h2 id="modal-title">Detalhes da Atividade</h2>
+                    <div id="modal-subtitle" class="modal-subtitle">#00 — 00/00/0000</div>
+                </div>
+                <button type="button" class="btn-close" onclick="closeModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-info-grid">
+                    <div class="info-item">
+                        <label>Usuário</label>
+                        <div id="modal-user">—</div>
+                    </div>
+                    <div class="info-item">
+                        <label>Local</label>
+                        <div id="modal-local">—</div>
+                    </div>
+                </div>
+                <div class="table-wrap" style="margin-top: 20px;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="cursor:pointer;" onclick="handleModalSort('produto')">Produto <span class="modal-sort-indicator" id="modal-sort-produto">⇅</span></th>
+                                <th style="text-align:center; cursor:pointer;" onclick="handleModalSort('status')">Status <span class="modal-sort-indicator" id="modal-sort-status">⇅</span></th>
+                                <th style="text-align:center; cursor:pointer;" onclick="handleModalSort('esperado')">End. Esperado <span class="modal-sort-indicator" id="modal-sort-esperado">⇅</span></th>
+                                <th style="text-align:center; cursor:pointer;" onclick="handleModalSort('lido')">End. Lido <span class="modal-sort-indicator" id="modal-sort-lido">⇅</span></th>
+                                <th style="text-align:right; cursor:pointer;" onclick="handleModalSort('estoque')">Estoque <span class="modal-sort-indicator" id="modal-sort-estoque">⇅</span></th>
+                                <th style="text-align:right; cursor:pointer;" onclick="handleModalSort('mdv')">MDV <span class="modal-sort-indicator" id="modal-sort-mdv">⇅</span></th>
+                                <th style="text-align:right; cursor:pointer;" onclick="handleModalSort('ddv')">DDV <span class="modal-sort-indicator" id="modal-sort-ddv">⇅</span></th>
+                            </tr>
+                        </thead>
+                        <tbody id="modal-history-tbody">
+                            <!-- Items will be injected here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/dashboard.js"></script>
+</body>
+
+</html>
+{{end}}

@@ -1,1 +1,95 @@
-{{define "home"}}<!doctype html><html lang="pt-BR"><head><title>SIMP</title>{{template "head" .}}</head><body><header class="top"><div class="brand">SIMP</div><a class="btn" href="/login">Entrar</a></header><main class="wrap"><section class="panel"><h1>Controle de Atividades</h1><p class="muted">Verificação de produtos, dashboard e administração.</p></section></main></body></html>{{end}}
+{{define "home"}}<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    {{template "head" .}}
+    <title>SIMP — Sistema de Inspeção</title>
+    <link rel="stylesheet" href="/style.css">
+    <style>
+        .placeholder-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .hero-icon {
+            font-size: 4rem;
+            margin-bottom: 1.5rem;
+            background: #4f46e5;
+            color: white;
+            width: 100px;
+            height: 100px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 20px;
+        }
+
+        .nav-links {
+            display: grid;
+            gap: 1rem;
+            width: 100%;
+            max-width: 300px;
+            margin-top: 2rem;
+        }
+
+        .nav-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 1rem;
+            text-decoration: none;
+            color: #0f172a;
+            font-weight: 600;
+            border: 1px solid #e2e8f0;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .nav-card:hover {
+            border-color: #4f46e5;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        .nav-card .icon {
+            font-size: 1.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="placeholder-container">
+        <div class="hero-icon">📦</div>
+        <h1 class="text-2xl font-bold">Portal SIMP</h1>
+        <p class="text-slate-500">Sistema de Monitoramento e Inspeção</p>
+
+        <div class="nav-links">
+            <a href="/login" class="nav-card">
+                <span class="icon">🔐</span>
+                <div style="text-align: left;">
+                    <div>Entrar</div>
+                    <div class="text-xs font-normal text-slate-400">Autenticação por perfil</div>
+                </div>
+            </a>
+            <a href="/atividades" class="nav-card">
+                <span class="icon">📲</span>
+                <div style="text-align: left;">
+                    <div>Atividades</div>
+                    <div class="text-xs font-normal text-slate-400">Coleta e conferência</div>
+                </div>
+            </a>
+            <a href="/admin" class="nav-card">
+                <span class="icon">🛡️</span>
+                <div style="text-align: left;">
+                    <div>Dashboard Admin</div>
+                    <div class="text-xs font-normal text-slate-400">Gestão e relatórios</div>
+                </div>
+            </a>
+        </div>
+    </div>
+</body>
+</html>{{end}}

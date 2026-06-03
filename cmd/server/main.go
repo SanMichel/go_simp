@@ -64,6 +64,11 @@ func main() {
 }
 func (a *App) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /style.css", a.style)
+	mux.HandleFunc("GET /admin.css", a.adminStyle)
+	mux.HandleFunc("GET /app.js", a.serveJS("app.js"))
+	mux.HandleFunc("GET /dashboard.js", a.serveJS("dashboard.js"))
+	mux.HandleFunc("GET /admin.js", a.serveJS("admin.js"))
+	mux.HandleFunc("GET /login.js", a.serveJS("login.js"))
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/login", http.StatusFound) })
 	mux.HandleFunc("GET /index.html", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/home", http.StatusFound) })
 	mux.HandleFunc("GET /home", a.home)
@@ -92,6 +97,16 @@ func (a *App) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/produtos/local", a.requireAPI(a.apiProdutosLocal))
 	mux.HandleFunc("POST /api/atividades/finalizar", a.requireAPI(a.apiFinalizar))
 	mux.HandleFunc("GET /api/atividades/last-info", a.requireAPI(a.apiLastInfo))
+	
+	mux.HandleFunc("GET /api/admin/users", a.requireAPI(a.apiAdminUsersList))
+	mux.HandleFunc("POST /api/admin/users", a.requireAPI(a.apiAdminUserCreate))
+	mux.HandleFunc("PATCH /api/admin/users/{id}", a.requireAPI(a.apiAdminUserUpdate))
+	
+	mux.HandleFunc("GET /api/dashboard/activities/filters", a.requireAPI(a.apiDashboardFilters))
+	mux.HandleFunc("GET /api/dashboard/activities", a.requireAPI(a.apiDashboardActivities))
+	mux.HandleFunc("GET /api/dashboard/activities/{id}", a.requireAPI(a.apiDashboardActivityDetails))
+	mux.HandleFunc("POST /api/dashboard/activities/bulk", a.requireAPI(a.apiDashboardBulkDetails))
+	mux.HandleFunc("PATCH /api/dashboard/activities/bulk/print", a.requireAPI(a.apiDashboardBulkPrint))
 }
 func (a *App) render(w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -103,6 +118,18 @@ func (a *App) style(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
 	b, _ := templatesFS.ReadFile("templates/style.css")
 	_, _ = w.Write(b)
+}
+func (a *App) adminStyle(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	b, _ := templatesFS.ReadFile("templates/admin.css")
+	_, _ = w.Write(b)
+}
+func (a *App) serveJS(filename string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		b, _ := templatesFS.ReadFile("templates/" + filename)
+		_, _ = w.Write(b)
+	}
 }
 
 func parseTemplates() *template.Template {
@@ -136,5 +163,5 @@ func parseTemplates() *template.Template {
 	return template.Must(template.New("app").Funcs(funcs).ParseFS(templatesFS, "templates/*.html", "templates/components/*.html"))
 }
 
-//go:embed templates/*.html templates/components/*.html templates/style.css
+//go:embed templates/*.html templates/components/*.html templates/*.css templates/*.js
 var templatesFS embed.FS
