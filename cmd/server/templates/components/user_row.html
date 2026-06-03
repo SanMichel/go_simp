@@ -1,0 +1,1 @@
+{{define "user_row"}}<tr id="user-{{.RowUser.ID}}"><td>{{.RowUser.ID}}</td><td>{{.RowUser.Username}}</td><td>{{rolePt .RowUser.Role}}</td><td><button class="secondary" hx-get="/admin/users/{{.RowUser.ID}}/edit" hx-target="#user-{{.RowUser.ID}}" hx-swap="outerHTML">Editar</button></td></tr>{{end}}
