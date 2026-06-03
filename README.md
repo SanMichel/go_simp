@@ -10,6 +10,14 @@ go mod tidy
 go run ./cmd/server
 ```
 
+## Development with Hot Reload
+
+For live reloading during development, you can use [Air](https://github.com/air-verse/air):
+
+```bash
+air
+```
+
 The server listens on `PORT` (`3000` by default).
 
 ## Stack
