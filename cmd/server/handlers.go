@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -25,6 +26,10 @@ func (a *App) loginPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) loginPost(w http.ResponseWriter, r *http.Request) {
+	if !a.loginLimiter.allow(r.RemoteAddr) {
+		a.render(w, "login", map[string]string{"Error": "Muitas tentativas. Aguarde 1 minuto."})
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		a.render(w, "login", map[string]string{"Error": "Erro ao processar formulário."})
 		return
@@ -39,11 +44,27 @@ func (a *App) loginPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "session error", http.StatusInternalServerError)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: "token", Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 8 * 60 * 60, Secure: a.cfg.AppEnv == "production"})
+	http.SetCookie(w, &http.Cookie{Name: "token", Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: int(a.cfg.SessionTTL.Seconds()), Secure: true})
+	a.setCSRFCookie(w)
 	a.redirectByRole(w, r, u.Role)
 }
+
+func (a *App) healthCheck(w http.ResponseWriter, r *http.Request) {
+	status := "ok"
+	if a.ora != nil && a.ora.db != nil {
+		if err := a.ora.db.PingContext(r.Context()); err != nil {
+			status = "oracle_down"
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": status})
+}
+
 func (a *App) logout(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{Name: "token", Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
+	if u, err := a.currentUser(r); err == nil {
+		a.revokeSession(r.Context(), u.ID)
+	}
+	http.SetCookie(w, &http.Cookie{Name: "token", Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
+	a.clearCSRFCookie(w)
 	http.Redirect(w, r, "/login", http.StatusFound)
 }
 
@@ -62,7 +83,8 @@ func (a *App) dashboardPage(w http.ResponseWriter, r *http.Request) {
 func (a *App) dashboardTable(w http.ResponseWriter, r *http.Request) {
 	activities, err := a.listActivities(r.Context(), parseFilters(r), 50)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("error: %v", err)
+		http.Error(w, "Erro interno do servidor", http.StatusInternalServerError)
 		return
 	}
 	options, _ := a.listFilterOptions(r.Context())
@@ -108,8 +130,10 @@ func (a *App) printActivities(w http.ResponseWriter, r *http.Request, ids []int)
 		act, items, err := a.activityDetailsData(r.Context(), id)
 		if err == nil {
 			bundles = append(bundles, Bundle{Activity: act, Items: items})
-			_, _ = a.pg.ExecContext(r.Context(), `UPDATE atividades SET impresso=true WHERE id=$1`, id)
 		}
+	}
+	for _, id := range ids {
+		_, _ = a.pg.ExecContext(r.Context(), `UPDATE atividades SET impresso=true WHERE id=$1`, id)
 	}
 	a.render(w, "print", map[string]any{"Bundles": bundles})
 }
@@ -118,7 +142,8 @@ func (a *App) adminPage(w http.ResponseWriter, r *http.Request) {
 	u, _ := a.currentUser(r)
 	users, err := a.listUsers(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("error: %v", err)
+		http.Error(w, "Erro interno do servidor", http.StatusInternalServerError)
 		return
 	}
 	a.render(w, "admin", map[string]any{"User": u, "Users": users})
@@ -131,22 +156,28 @@ func (a *App) adminUsersSection(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) adminCreateUser(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		log.Printf("error: %v", err)
+		http.Error(w, "Erro interno do servidor", http.StatusBadRequest)
 		return
 	}
 	username := strings.TrimSpace(r.FormValue("username"))
 	password := r.FormValue("password")
 	role := r.FormValue("role")
-	if username == "" || len(password) < 4 || !validRole(role) {
+	if username == "" || len(password) < 8 || !validRole(role) {
 		users, _ := a.listUsers(r.Context())
 		a.render(w, "users_section", map[string]any{"Users": users, "Message": "Dados inválidos.", "Error": true})
 		return
 	}
-	hash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	_, err := a.pg.ExecContext(r.Context(), `INSERT INTO users (username, password, role) VALUES ($1,$2,$3)`, username, string(hash), role)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	_, err = a.pg.ExecContext(r.Context(), `INSERT INTO users (username, password, role) VALUES ($1,$2,$3)`, username, string(hash), role)
 	users, _ := a.listUsers(r.Context())
 	if err != nil {
-		a.render(w, "users_section", map[string]any{"Users": users, "Message": err.Error(), "Error": true})
+		log.Printf("error: %v", err)
+		a.render(w, "users_section", map[string]any{"Users": users, "Message": "Erro interno do servidor", "Error": true})
 		return
 	}
 	a.render(w, "users_section", map[string]any{"Users": users, "Message": "Usuário criado com sucesso."})
@@ -175,7 +206,8 @@ func (a *App) adminUserRow(w http.ResponseWriter, r *http.Request) {
 func (a *App) adminUpdateUser(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.Atoi(r.PathValue("id"))
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		log.Printf("error: %v", err)
+		http.Error(w, "Erro interno do servidor", http.StatusBadRequest)
 		return
 	}
 	role := r.FormValue("role")
@@ -185,10 +217,14 @@ func (a *App) adminUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if password != "" {
-		hash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-		_, _ = a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, password=$2 WHERE id=$3`, role, string(hash), id)
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		_, _ = a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, password=$2, last_token_at=now() WHERE id=$3`, role, string(hash), id)
 	} else {
-		_, _ = a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1 WHERE id=$2`, role, id)
+		_, _ = a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, last_token_at=now() WHERE id=$2`, role, id)
 	}
 	u, _ := a.findUserByID(r.Context(), id)
 	a.render(w, "user_row", map[string]any{"RowUser": u})
@@ -203,6 +239,10 @@ func (a *App) apiMe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
+	if !a.loginLimiter.allow(r.RemoteAddr) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Muitas tentativas. Aguarde 1 minuto."})
+		return
+	}
 	var body struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -221,7 +261,8 @@ func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao criar sessão"})
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: "token", Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 8 * 60 * 60, Secure: a.cfg.AppEnv == "production"})
+	http.SetCookie(w, &http.Cookie{Name: "token", Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: int(a.cfg.SessionTTL.Seconds()), Secure: true})
+	a.setCSRFCookie(w)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"token": token,
 		"user":  map[string]any{"id": u.ID, "username": u.Username, "role": u.Role},
@@ -229,7 +270,11 @@ func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiLogout(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{Name: "token", Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
+	if u, err := a.currentUser(r); err == nil {
+		a.revokeSession(r.Context(), u.ID)
+	}
+	http.SetCookie(w, &http.Cookie{Name: "token", Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
+	a.clearCSRFCookie(w)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Logout realizado com sucesso"})
 }
 

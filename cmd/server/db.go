@@ -28,12 +28,83 @@ func (o *OracleReader) QueryRowContext(ctx context.Context, query string, args .
 func isReadOnlySQL(query string) bool {
 	q := strings.TrimSpace(strings.TrimPrefix(query, "\ufeff"))
 	q = strings.TrimLeft(q, "(\n\r\t ")
-	fields := strings.Fields(q)
-	if len(fields) == 0 {
+	for {
+		trimmed := strings.TrimSpace(q)
+		if trimmed == "" {
+			return false
+		}
+		upper := strings.ToUpper(trimmed)
+		if strings.HasPrefix(upper, "SELECT") || strings.HasPrefix(upper, "WITH") {
+			break
+		}
+		if strings.HasPrefix(upper, "/*") {
+			end := strings.Index(trimmed[2:], "*/")
+			if end < 0 {
+				return false
+			}
+			q = trimmed[end+4:]
+			continue
+		}
 		return false
 	}
-	first := strings.ToUpper(fields[0])
-	return first == "SELECT" || first == "WITH"
+	dml := []string{
+		" INSERT", " UPDATE", " DELETE", " DROP", " ALTER", " CREATE",
+		" TRUNCATE", " EXEC", " EXECUTE", " MERGE", " REPLACE",
+		" GRANT", " REVOKE", " CALL", " LOCK", " RENAME",
+		" COMMIT", " ROLLBACK", " BEGIN", " DECLARE",
+	}
+	sq := removeSQLComments(query)
+	upper := " " + strings.ToUpper(sq)
+	for _, kw := range dml {
+		if strings.Contains(upper, kw+" ") || strings.HasSuffix(upper, kw) {
+			return false
+		}
+	}
+	return true
+}
+
+func removeSQLComments(q string) string {
+	var out strings.Builder
+	out.Grow(len(q))
+	for i := 0; i < len(q); i++ {
+		if q[i] == '-' && i+1 < len(q) && q[i+1] == '-' {
+			for i < len(q) && q[i] != '\n' {
+				i++
+			}
+			out.WriteByte(' ')
+			continue
+		}
+		if q[i] == '/' && i+1 < len(q) && q[i+1] == '*' {
+			i += 2
+			for i+1 < len(q) && !(q[i] == '*' && q[i+1] == '/') {
+				i++
+			}
+			i += 2
+			out.WriteByte(' ')
+			continue
+		}
+		if q[i] == '\'' || q[i] == '"' {
+			quote := q[i]
+			out.WriteByte(quote)
+			i++
+			for i < len(q) && q[i] != quote {
+				if q[i] == '\\' && i+1 < len(q) {
+					out.WriteByte(q[i])
+					i++
+				}
+				if i < len(q) {
+					out.WriteByte(q[i])
+					i++
+				}
+			}
+			if i < len(q) {
+				out.WriteByte(q[i])
+			}
+			continue
+		}
+		out.WriteByte(q[i])
+	}
+	return strings.NewReplacer("\n", " ", "\r", " ", "\t", " ").Replace(out.String())
 }
 
 func (a *App) migrate(ctx context.Context) error {
@@ -42,8 +113,10 @@ func (a *App) migrate(ctx context.Context) error {
 			id BIGSERIAL PRIMARY KEY,
 			username TEXT NOT NULL UNIQUE,
 			password TEXT NOT NULL,
-			role TEXT NOT NULL DEFAULT 'conferente'
+			role TEXT NOT NULL DEFAULT 'conferente',
+			last_token_at TIMESTAMPTZ
 		)`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_token_at TIMESTAMPTZ`,
 		`CREATE TABLE IF NOT EXISTS atividades (
 			id BIGSERIAL PRIMARY KEY,
 			empresa TEXT NOT NULL,
@@ -103,26 +176,26 @@ func (a *App) seedAdmin(ctx context.Context) error {
 }
 func (a *App) findUserByUsername(ctx context.Context, username string) (*User, error) {
 	var u User
-	err := a.pg.QueryRowContext(ctx, `SELECT id, username, password, role FROM users WHERE username=$1`, username).Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role)
+	err := a.pg.QueryRowContext(ctx, `SELECT id, username, password, role, last_token_at FROM users WHERE username=$1`, username).Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.LastTokenAt)
 	return &u, err
 }
 
 func (a *App) findUserByID(ctx context.Context, id int) (*User, error) {
 	var u User
-	err := a.pg.QueryRowContext(ctx, `SELECT id, username, password, role FROM users WHERE id=$1`, id).Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role)
+	err := a.pg.QueryRowContext(ctx, `SELECT id, username, password, role, last_token_at FROM users WHERE id=$1`, id).Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.LastTokenAt)
 	return &u, err
 }
 
-func (a *App) listUsers(ctx context.Context) ([]User, error) {
-	rows, err := a.pg.QueryContext(ctx, `SELECT id, username, '' AS password, role FROM users ORDER BY id`)
+func (a *App) listUsers(ctx context.Context) ([]UserRow, error) {
+	rows, err := a.pg.QueryContext(ctx, `SELECT id, username, role, last_token_at FROM users ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var users []User
+	var users []UserRow
 	for rows.Next() {
-		var u User
-		if rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role) == nil {
+		var u UserRow
+		if rows.Scan(&u.ID, &u.Username, &u.Role, &u.LastTokenAt) == nil {
 			users = append(users, u)
 		}
 	}
@@ -261,7 +334,7 @@ func (a *App) activityDetailsData(ctx context.Context, id int) (Activity, []Prod
 				LEFT JOIN CONSINCO.MAP_PRODUTO mp ON mp.SEQPRODUTO=mpe.SEQPRODUTO
 				WHERE mpe.NROEMPRESA=:1 AND mpe.SEQPRODUTO=:2
 			`, p.Empresa, p.SeqProduto).Scan(&desc, &estq, &mdv, &dtaUltVenda)
-			
+
 			if errOra == nil {
 				p.DescCompleta = desc
 				p.Estoque = estq

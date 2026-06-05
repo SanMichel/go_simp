@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -23,19 +24,19 @@ type APIActivity struct {
 }
 
 type APIProductVerification struct {
-	ID             int     `json:"id"`
-	AtividadeID    int     `json:"atividade_id"`
-	SeqProduto     int     `json:"seqproduto"`
-	Empresa        string  `json:"empresa"`
-	RuaLida        *string `json:"rua"`
-	PredioLido     *string `json:"predio"`
-	RuaEsperada    *string `json:"expectedRua"`
-	PredioEsperado *string `json:"expectedPredio"`
-	Status         string  `json:"status"`
-	Reposicao      bool    `json:"reposicao"`
-	Estoque        int     `json:"estoque"`
-	DataEntrada    *string `json:"data_entrada"`
-	DescCompleta   *string `json:"desccompleta"`
+	ID             int      `json:"id"`
+	AtividadeID    int      `json:"atividade_id"`
+	SeqProduto     int      `json:"seqproduto"`
+	Empresa        string   `json:"empresa"`
+	RuaLida        *string  `json:"rua"`
+	PredioLido     *string  `json:"predio"`
+	RuaEsperada    *string  `json:"expectedRua"`
+	PredioEsperado *string  `json:"expectedPredio"`
+	Status         string   `json:"status"`
+	Reposicao      bool     `json:"reposicao"`
+	Estoque        int      `json:"estoque"`
+	DataEntrada    *string  `json:"data_entrada"`
+	DescCompleta   *string  `json:"desccompleta"`
 	MDV            *float64 `json:"mdv"`
 	DDV            *float64 `json:"ddv"`
 }
@@ -95,14 +96,15 @@ func mapProduct(p ProductVerification) APIProductVerification {
 	}
 }
 
-func mapUser(u User) APIUser {
+func mapUser(u UserRow) APIUser {
 	return APIUser{ID: u.ID, Username: u.Username, Role: u.Role}
 }
 
 func (a *App) apiAdminUsersList(w http.ResponseWriter, r *http.Request, u *User) {
 	users, err := a.listUsers(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		log.Printf("error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro interno do servidor"})
 		return
 	}
 	apiUsers := make([]APIUser, len(users))
@@ -119,14 +121,19 @@ func (a *App) apiAdminUserCreate(w http.ResponseWriter, r *http.Request, u *User
 		Role     string `json:"role"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
-	if req.Username == "" || len(req.Password) < 4 || !validRole(req.Role) {
+	if req.Username == "" || len(req.Password) < 8 || !validRole(req.Role) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Dados inválidos"})
 		return
 	}
-	hash, _ := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	_, err := a.pg.ExecContext(r.Context(), `INSERT INTO users (username, password, role) VALUES ($1,$2,$3)`, req.Username, string(hash), req.Role)
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao criar hash"})
+		return
+	}
+	_, err = a.pg.ExecContext(r.Context(), `INSERT INTO users (username, password, role) VALUES ($1,$2,$3)`, req.Username, string(hash), req.Role)
+	if err != nil {
+		log.Printf("error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro interno do servidor"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "OK"})
@@ -144,10 +151,14 @@ func (a *App) apiAdminUserUpdate(w http.ResponseWriter, r *http.Request, u *User
 		return
 	}
 	if req.Password != "" {
-		hash, _ := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-		_, _ = a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, password=$2 WHERE id=$3`, req.Role, string(hash), id)
+		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao criar hash"})
+			return
+		}
+		_, _ = a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, password=$2, last_token_at=now() WHERE id=$3`, req.Role, string(hash), id)
 	} else {
-		_, _ = a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1 WHERE id=$2`, req.Role, id)
+		_, _ = a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, last_token_at=now() WHERE id=$2`, req.Role, id)
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "OK"})
 }
@@ -155,7 +166,8 @@ func (a *App) apiAdminUserUpdate(w http.ResponseWriter, r *http.Request, u *User
 func (a *App) apiDashboardFilters(w http.ResponseWriter, r *http.Request, u *User) {
 	options, err := a.listFilterOptions(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		log.Printf("error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro interno do servidor"})
 		return
 	}
 	// FilterOptions can just have lowercase JSON tags
@@ -177,7 +189,8 @@ func (a *App) apiDashboardFilters(w http.ResponseWriter, r *http.Request, u *Use
 func (a *App) apiDashboardActivities(w http.ResponseWriter, r *http.Request, u *User) {
 	activities, err := a.listActivities(r.Context(), parseFilters(r), 200)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		log.Printf("error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro interno do servidor"})
 		return
 	}
 	apiActivities := make([]APIActivity, len(activities))

@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	go_ora "github.com/sijms/go-ora/v2"
@@ -15,7 +16,13 @@ import (
 
 func loadConfig() Config {
 	port := getenv("PORT", "3000")
-	secret := getenv("SESSION_SECRET", "dev-secret-change-me")
+	secret := os.Getenv("SESSION_SECRET")
+	if secret == "" {
+		log.Fatal("SESSION_SECRET is required — set it in .env or environment")
+	}
+	if len(secret) < 32 {
+		log.Fatal("SESSION_SECRET must be at least 32 characters long")
+	}
 	pgURL := getenv("POSTGRES_URL", os.Getenv("DATABASE_URL"))
 	if pgURL == "" {
 		log.Fatal("POSTGRES_URL or DATABASE_URL required")
@@ -34,12 +41,41 @@ func loadConfig() Config {
 		)
 	}
 
+	sessionTTL := 8 * time.Hour
+	if v := os.Getenv("SESSION_TTL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			sessionTTL = d
+		}
+	}
+	pgMaxConns := 10
+	if v := os.Getenv("PG_MAX_CONNS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			pgMaxConns = n
+		}
+	}
+	oracleMaxConns := 5
+	if v := os.Getenv("ORACLE_MAX_CONNS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			oracleMaxConns = n
+		}
+	}
+	oracleIdleConns := 1
+	if v := os.Getenv("ORACLE_IDLE_CONNS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			oracleIdleConns = n
+		}
+	}
+
 	return Config{
-		Port:          port,
-		AppEnv:        getenv("APP_ENV", "development"),
-		SessionSecret: []byte(secret),
-		PostgresURL:   pgURL,
-		OracleURL:     oracleURL,
+		Port:            port,
+		AppEnv:          getenv("APP_ENV", "development"),
+		SessionSecret:   []byte(secret),
+		PostgresURL:     pgURL,
+		OracleURL:       oracleURL,
+		SessionTTL:      sessionTTL,
+		PGMaxConns:      pgMaxConns,
+		OracleMaxConns:  oracleMaxConns,
+		OracleIdleConns: oracleIdleConns,
 	}
 }
 
@@ -55,7 +91,8 @@ func loadDotEnv(path string) error {
 	if err != nil {
 		return err
 	}
-	for lineNo, raw := range strings.Split(string(b), "\n") {
+	content := strings.ReplaceAll(string(b), "\r\n", "\n")
+	for lineNo, raw := range strings.Split(content, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -134,4 +171,61 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(data)
+}
+
+type rateEntry struct {
+	count   int
+	resetAt time.Time
+}
+
+type rateLimiter struct {
+	mu      sync.Mutex
+	entries map[string]*rateEntry
+}
+
+func newRateLimiter() *rateLimiter {
+	rl := &rateLimiter{entries: make(map[string]*rateEntry)}
+	go func() {
+		for {
+			time.Sleep(1 * time.Minute)
+			rl.mu.Lock()
+			now := time.Now()
+			for ip, e := range rl.entries {
+				if now.After(e.resetAt) {
+					delete(rl.entries, ip)
+				}
+			}
+			rl.mu.Unlock()
+		}
+	}()
+	return rl
+}
+
+func (rl *rateLimiter) allow(ip string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	now := time.Now()
+	e, ok := rl.entries[ip]
+	if !ok || now.After(e.resetAt) {
+		rl.entries[ip] = &rateEntry{count: 1, resetAt: now.Add(1 * time.Minute)}
+		return true
+	}
+	if e.count >= 5 {
+		return false
+	}
+	e.count++
+	return true
+}
+
+func (a *App) securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		if a.cfg.AppEnv == "production" {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+		next.ServeHTTP(w, r)
+	})
 }

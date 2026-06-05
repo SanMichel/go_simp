@@ -7,18 +7,23 @@ import (
 )
 
 type Config struct {
-	Port          string
-	AppEnv        string
-	SessionSecret []byte
-	PostgresURL   string
-	OracleURL     string
+	Port            string
+	AppEnv          string
+	SessionSecret   []byte
+	PostgresURL     string
+	OracleURL       string
+	SessionTTL      time.Duration
+	PGMaxConns      int
+	OracleMaxConns  int
+	OracleIdleConns int
 }
 
 type App struct {
-	cfg Config
-	pg  *sql.DB
-	ora *OracleReader
-	tpl *template.Template
+	cfg          Config
+	pg           *sql.DB
+	ora          *OracleReader
+	tpl          *template.Template
+	loginLimiter *rateLimiter
 }
 
 type OracleReader struct {
@@ -30,6 +35,14 @@ type User struct {
 	Username     string
 	PasswordHash string
 	Role         string
+	LastTokenAt  sql.NullTime
+}
+
+type UserRow struct {
+	ID          int
+	Username    string
+	Role        string
+	LastTokenAt sql.NullTime
 }
 
 type Activity struct {

@@ -26,7 +26,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	pg.SetMaxOpenConns(10)
+	pg.SetMaxOpenConns(cfg.PGMaxConns)
 	pg.SetConnMaxLifetime(time.Hour)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -40,14 +40,14 @@ func main() {
 		log.Fatal(err)
 	}
 	oracleReader := &OracleReader{db: ora}
-	oracleReader.db.SetMaxOpenConns(5)
-	oracleReader.db.SetMaxIdleConns(1)
+	oracleReader.db.SetMaxOpenConns(cfg.OracleMaxConns)
+	oracleReader.db.SetMaxIdleConns(cfg.OracleIdleConns)
 	oracleReader.db.SetConnMaxLifetime(time.Hour)
 	if err := oracleReader.db.PingContext(ctx); err != nil {
-		log.Printf("warning: oracle ping failed: %v", err)
+		log.Printf("warning: oracle ping failed")
 	}
 
-	app := &App{cfg: cfg, pg: pg, ora: oracleReader, tpl: parseTemplates()}
+	app := &App{cfg: cfg, pg: pg, ora: oracleReader, tpl: parseTemplates(), loginLimiter: newRateLimiter()}
 	if err := app.migrate(ctx); err != nil {
 		log.Fatal(err)
 	}
@@ -60,11 +60,14 @@ func main() {
 
 	addr := ":" + cfg.Port
 	log.Printf("server ready on http://localhost%s", addr)
-	log.Fatal(http.ListenAndServe(addr, app.log(mux)))
+	log.Fatal(http.ListenAndServe(addr, app.csrfMiddleware(app.securityHeaders(app.log(mux)))))
 }
 func (a *App) routes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/health", a.healthCheck)
 	mux.HandleFunc("GET /style.css", a.style)
 	mux.HandleFunc("GET /admin.css", a.adminStyle)
+	mux.HandleFunc("GET /shared.js", a.serveJS("shared.js"))
+	mux.HandleFunc("GET /htmx.min.js", a.serveJS("htmx.min.js"))
 	mux.HandleFunc("GET /app.js", a.serveJS("app.js"))
 	mux.HandleFunc("GET /dashboard.js", a.serveJS("dashboard.js"))
 	mux.HandleFunc("GET /admin.js", a.serveJS("admin.js"))
@@ -75,7 +78,7 @@ func (a *App) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /login", a.loginPage)
 	mux.HandleFunc("POST /login", a.loginPost)
 	mux.HandleFunc("POST /logout", a.logout)
-	mux.HandleFunc("GET /atividades", a.requireRole("", a.atividadesPage))
+	mux.HandleFunc("GET /atividades", a.requireRole("", a.atividadesPage)) // empty = any authenticated user
 	mux.HandleFunc("GET /dashboard", a.requireRole("gerente,sysadmin", a.dashboardPage))
 	mux.HandleFunc("GET /dashboard/table", a.requireRole("gerente,sysadmin", a.dashboardTable))
 	mux.HandleFunc("GET /dashboard/activities/{id}/details", a.requireRole("gerente,sysadmin", a.activityDetails))
@@ -97,11 +100,11 @@ func (a *App) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/produtos/local", a.requireAPI(a.apiProdutosLocal))
 	mux.HandleFunc("POST /api/atividades/finalizar", a.requireAPI(a.apiFinalizar))
 	mux.HandleFunc("GET /api/atividades/last-info", a.requireAPI(a.apiLastInfo))
-	
+
 	mux.HandleFunc("GET /api/admin/users", a.requireAPI(a.apiAdminUsersList))
 	mux.HandleFunc("POST /api/admin/users", a.requireAPI(a.apiAdminUserCreate))
 	mux.HandleFunc("PATCH /api/admin/users/{id}", a.requireAPI(a.apiAdminUserUpdate))
-	
+
 	mux.HandleFunc("GET /api/dashboard/activities/filters", a.requireAPI(a.apiDashboardFilters))
 	mux.HandleFunc("GET /api/dashboard/activities", a.requireAPI(a.apiDashboardActivities))
 	mux.HandleFunc("GET /api/dashboard/activities/{id}", a.requireAPI(a.apiDashboardActivityDetails))
@@ -111,30 +114,46 @@ func (a *App) routes(mux *http.ServeMux) {
 func (a *App) render(w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := a.tpl.ExecuteTemplate(w, name, data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("error: %v", err)
+		http.Error(w, "Erro interno do servidor", http.StatusInternalServerError)
 	}
 }
 func (a *App) style(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
-	b, _ := templatesFS.ReadFile("templates/style.css")
+	b, err := templatesFS.ReadFile("templates/style.css")
+	if err != nil {
+		log.Printf("error reading style.css: %v", err)
+		http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 	_, _ = w.Write(b)
 }
 func (a *App) adminStyle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
-	b, _ := templatesFS.ReadFile("templates/admin.css")
+	b, err := templatesFS.ReadFile("templates/admin.css")
+	if err != nil {
+		log.Printf("error reading admin.css: %v", err)
+		http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 	_, _ = w.Write(b)
 }
 func (a *App) serveJS(filename string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-		b, _ := templatesFS.ReadFile("templates/" + filename)
+		b, err := templatesFS.ReadFile("templates/" + filename)
+		if err != nil {
+			log.Printf("error reading %s: %v", filename, err)
+			http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
+			return
+		}
 		_, _ = w.Write(b)
 	}
 }
 
 func parseTemplates() *template.Template {
 	funcs := template.FuncMap{
-		"rowUser": func(u User) map[string]any {
+		"rowUser": func(u UserRow) map[string]any {
 			return map[string]any{"RowUser": u}
 		},
 		"date": func(t time.Time) string {
