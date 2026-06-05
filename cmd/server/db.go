@@ -250,6 +250,27 @@ func (a *App) activityDetailsData(ctx context.Context, id int) (Activity, []Prod
 	for rows.Next() {
 		var p ProductVerification
 		if rows.Scan(&p.ID, &p.AtividadeID, &p.SeqProduto, &p.Empresa, &p.RuaLida, &p.PredioLido, &p.RuaEsperada, &p.PredioEsperado, &p.Status, &p.Reposicao, &p.Estoque, &p.DataEntrada) == nil {
+			// Query Oracle for DescCompleta, MDV, etc.
+			var desc sql.NullString
+			var estq int
+			var mdv sql.NullFloat64
+			var dtaUltVenda sql.NullTime
+			errOra := a.ora.QueryRowContext(ctx, `
+				SELECT mp.DESCCOMPLETA, mpe.ESTQLOJA, mpe.MEDVDIAGERAL, mpe.DTAULTVENDA
+				FROM CONSINCO.MRL_PRODUTOEMPRESA mpe
+				LEFT JOIN CONSINCO.MAP_PRODUTO mp ON mp.SEQPRODUTO=mpe.SEQPRODUTO
+				WHERE mpe.NROEMPRESA=:1 AND mpe.SEQPRODUTO=:2
+			`, p.Empresa, p.SeqProduto).Scan(&desc, &estq, &mdv, &dtaUltVenda)
+			
+			if errOra == nil {
+				p.DescCompleta = desc
+				p.Estoque = estq
+				p.MDV = mdv
+				if dtaUltVenda.Valid && mdv.Valid && mdv.Float64 > 0 {
+					p.DDV = sql.NullFloat64{Float64: float64(estq) / mdv.Float64, Valid: true}
+				}
+			}
+
 			items = append(items, p)
 		}
 	}

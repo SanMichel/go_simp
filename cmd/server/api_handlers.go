@@ -15,7 +15,7 @@ type APIActivity struct {
 	SeqLocal int        `json:"seqlocal"`
 	UserID   int        `json:"user_id"`
 	Username string     `json:"username"`
-	DataFim  *time.Time `json:"data_fim"`
+	DataFim  *time.Time `json:"dataFim"`
 	Impresso bool       `json:"impresso"`
 	Rua      string     `json:"rua"`
 	Predio   string     `json:"predio"`
@@ -36,6 +36,8 @@ type APIProductVerification struct {
 	Estoque        int     `json:"estoque"`
 	DataEntrada    *string `json:"data_entrada"`
 	DescCompleta   *string `json:"desccompleta"`
+	MDV            *float64 `json:"mdv"`
+	DDV            *float64 `json:"ddv"`
 }
 
 type APIUser struct {
@@ -76,11 +78,20 @@ func mapProduct(p ProductVerification) APIProductVerification {
 		d := p.DataEntrada.Time.Format(time.RFC3339)
 		data = &d
 	}
+	var mdv, ddv *float64
+	if p.MDV.Valid {
+		m := p.MDV.Float64
+		mdv = &m
+	}
+	if p.DDV.Valid {
+		d := p.DDV.Float64
+		ddv = &d
+	}
 	return APIProductVerification{
 		ID: p.ID, AtividadeID: p.AtividadeID, SeqProduto: p.SeqProduto, Empresa: p.Empresa,
 		RuaLida: rua, PredioLido: predio, RuaEsperada: expRua, PredioEsperado: expPredio,
 		Status: p.Status, Reposicao: p.Reposicao, Estoque: p.Estoque,
-		DataEntrada: data, DescCompleta: desc,
+		DataEntrada: data, DescCompleta: desc, MDV: mdv, DDV: ddv,
 	}
 }
 

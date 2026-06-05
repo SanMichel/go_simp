@@ -81,6 +81,8 @@ type ProductVerification struct {
 	Estoque        int
 	DataEntrada    sql.NullTime
 	DescCompleta   sql.NullString
+	MDV            sql.NullFloat64
+	DDV            sql.NullFloat64
 }
 
 type OracleEmpresa struct {
