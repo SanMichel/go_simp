@@ -1,84 +1,113 @@
 # External Integrations
 
-**Analysis Date:** 2026-06-05
+**Analysis Date:** 2026-06-08
 
 ## APIs & External Services
 
-**Oracle Database (Product/Company/Location data):**
-- Used for product lookups by EAN/code, company listings, location listings, and product details (stock, pricing, sales velocity).
-- Read-only — enforced by `isReadOnlySQL()` guard in `cmd/server/db.go:28-64`. Only `SELECT`/`WITH` queries pass. DML statements are rejected.
-- Driver: `github.com/sijms/go-ora/v2 v2.8.24` registered as `"oracle"` in `cmd/server/main.go:15`.
-- Connection: `ORACLE_URL` env var, or built from `ORACLE_HOST/PORT/SERVICE/USER/PASSWORD`.
-- Queries target `CONSINCO` schema tables: `MAX_EMPRESA`, `MRL_LOCAL`, `MRL_PRODUTOEMPRESA`, `MAP_PRODUTO`, `MAP_PRODCODIGO`, `MRL_PRODLOCAL`, `ETLV_PRODUTO`, and function `fBuscaPrecoAtualPdv`.
+No external HTTP/API services are consumed. The application does not make outbound HTTP requests to any third-party service.
+
+All data that requires remote access is served through direct database connections (Postgres and Oracle).
 
 ## Data Storage
 
-**Databases:**
+**Databases (Primary — State Store):**
+- **Postgres** — Application state store for users, activities, product verifications, and activity addresses.
+  - Connection: `POSTGRES_URL` env var (or fallback `DATABASE_URL`)
+  - Driver: `github.com/jackc/pgx/v5` via `database/sql` stdlib
+  - Pool: Max 10 open connections (`PG_MAX_CONNS`)
+  - Tables: `users`, `atividades`, `atividade_enderecos`, `produto_verificacao`
+  - Auto-migrates on startup via `(a *App) migrate()` in `cmd/server/db.go:111`
+  - Client file: `cmd/server/db.go` and `cmd/server/main.go:27-38`
 
-**PostgreSQL (Application state):**
-- Stores: users, activities (atividades), activity addresses (atividade_enderecos), product verifications (produto_verificacao).
-- Driver: `github.com/jackc/pgx/v5 v5.7.2` via `database/sql` stdlib interface, registered as `"pgx"`.
-- Connection: `POSTGRES_URL` or `DATABASE_URL` env var.
-- Connection pool: configurable via `PG_MAX_CONNS` (default 10), conn max lifetime 1 hour.
-- Auto-migration on startup: `App.migrate()` in `cmd/server/db.go:110-158` creates tables and indexes idempotently.
-- Schema (4 tables): `users`, `atividades`, `atividade_enderecos`, `produto_verificacao` — all with `BIGSERIAL` PKs, `TIMESTAMPTZ` for time fields.
-
-**Oracle (Read-only reference):**
-- Stores: enterprise configuration, product catalog, stock levels, pricing, locations.
-- Read-only enforced programmatically.
-- Connection pool: configurable via `ORACLE_MAX_CONNS` (default 5) and `ORACLE_IDLE_CONNS` (default 1), conn max lifetime 1 hour.
+**Databases (Secondary — Read-Only Lookup):**
+- **Oracle** — Production source-of-truth database for product, company, and location lookups.
+  - Connection: `ORACLE_URL` env var, OR built from `ORACLE_HOST`/`PORT`/`SERVICE`/`USER`/`PASSWORD`
+  - Driver: `github.com/sijms/go-ora/v2` via `database/sql` stdlib
+  - Pool: Max 5 connections (`ORACLE_MAX_CONNS`)
+  - **Read-only enforced** — `(a *App) QueryContext()` and `(a *App) QueryRowContext()` in `cmd/server/db.go:15-27` guard with `isReadOnlySQL()`
+  - Graceful degradation: On startup, Oracle ping failure is a warning (not fatal). Several API endpoints will return 500 if Oracle is unavailable.
+  - Schemes queried: `CONSINCO.MRL_PRODUTOEMPRESA`, `CONSINCO.MAP_PRODUTO`, `CONSINCO.MAP_PRODCODIGO`, `CONSINCO.MRL_PRODLOCAL`, `CONSINCO.MAX_EMPRESA`, `CONSINCO.MRL_LOCAL`, `CONSINCO.ETLV_PRODUTO`
+  - Oracle function used: `CONSINCO.fBuscaPrecoAtualPdv()`
+  - Client file: `cmd/server/db.go`, `cmd/server/handlers.go`
 
 **File Storage:**
-- Local filesystem only. No external file storage (S3, etc.).
-- Static assets (CSS, JS, HTML templates) embedded in binary via `go:embed` in `cmd/server/main.go:185-186`.
+- Local filesystem only (embedded assets). No external file storage (no S3, no blob storage).
 
 **Caching:**
-- None. No Redis, Memcached, or in-memory cache beyond application structs.
+- None. No Redis, Memcached, or in-memory cache layer. Oracle and Postgres queries hit the database every time.
 
 ## Authentication & Identity
 
 **Auth Provider:**
-- **Custom implementation** — no third-party auth provider (no OAuth, no SSO, no social login).
-- Session tokens: HMAC-SHA256 signed JSON payloads stored in `token` cookie (HttpOnly, SameSite=Strict, Secure).
-- Token format: `base64(payload).base64(signature)` — custom, not JWT (no `nonce` field, simple `{id, exp, iat}`).
-- Password hashing: bcrypt via `golang.org/x/crypto/bcrypt`.
-- Session revocation: `last_token_at` column on `users` table invalidates tokens issued before that timestamp.
-- Rate limiting: in-memory per-IP, 5 attempts/minute (`rateLimiter` in `cmd/server/utils.go:181-218`).
-- CSRF protection: custom middleware using `csrf_token` cookie + `X-CSRF-Token` header for API routes (`cmd/server/auth.go:140-167`).
-- Roles: `conferente` (base), `gerente` (manager), `sysadmin` (admin). Enforced by `requireRole` middleware.
+- **Custom implementation** — no external auth provider (no OAuth, no SSO, no OIDC).
+- Authentication: HMAC-SHA256 signed session tokens stored in `token` cookie (HttpOnly, Secure, SameSite=Strict).
+  - Implementation: `cmd/server/auth.go:21-60` (`currentUser`, `makeToken`)
+- Password hashing: bcrypt via `golang.org/x/crypto` package.
+- Session revocation: `last_token_at` column on `users` table — tokens issued before that timestamp are rejected.
+  - Implementation: `cmd/server/auth.go:152-154` (`revokeSession`)
+- CSRF protection: Double-submit cookie pattern with `csrf_token` cookie and `X-CSRF-Token` header.
+  - Implementation: `cmd/server/auth.go:156-184` (`csrfMiddleware`)
+- Rate limiting: In-memory per-IP rate limiter (5 attempts/minute) for login endpoints.
+  - Implementation: `cmd/server/utils.go:183-225` (`rateLimiter`)
+
+**Roles:**
+- Three roles: `conferente`, `gerente`, `sysadmin`
+- Role-based access enforced via `requireRole()` and `requireAPIRole()` middleware in `cmd/server/auth.go:86-131`
 
 ## Monitoring & Observability
 
 **Error Tracking:**
-- None. Errors are logged via `log.Printf` to stdout only.
+- None. No Sentry, Datadog, or similar service.
 
 **Logs:**
-- Standard library `log` package — structured-ish format: `"METHOD /path STATUS duration"` via `log` middleware in `cmd/server/utils.go:123-130`.
-- Build error logs: `build-errors.log` (Air output, gitignored).
+- Standard Go `log` package — structured console output only (stdout/stderr).
+  - Request logging: `cmd/server/utils.go:130-137` — `METHOD PATH STATUS DURATION` format
+  - Application errors and warnings: `log.Printf` throughout all files
 
 **Health Check:**
-- `GET /api/health` — returns `{"status": "ok"}` or `{"status": "oracle_down"}` (if Oracle ping fails). Postgres not checked in health endpoint.
+- `GET /api/health` endpoint in `cmd/server/main.go:86` and `cmd/server/handlers.go:52`
+  - Returns `{"status":"ok"}` or `{"status":"oracle_down"}`
+  - Pings both Postgres and Oracle connections
 
 ## CI/CD & Deployment
 
 **Hosting:**
-- Self-hosted Go binary. Single executable, no container configuration found.
+- Not specified. Deployable as standalone Go binary. Listening on `:PORT` (default 3000).
 
 **CI Pipeline:**
-- Not detected. No CI config files (GitHub Actions, GitLab CI, CircleCI, etc.).
+- None detected (no `.github/`, `.gitlab-ci.yml`, `Dockerfile`, or CI config in the main project; the `tmp/` directory has a `Dockerfile` but that is the old app reference copy, not to be modified).
+
+**Containerization:**
+- No `Dockerfile` in the active project.
 
 ## Environment Configuration
 
-**Required env vars (app will `log.Fatal` if missing):**
-- `SESSION_SECRET` — HMAC key, minimum 32 characters
-- `POSTGRES_URL` or `DATABASE_URL` — Postgres connection string
+**Required env vars:**
+| Variable | Purpose |
+|---|---|
+| `SESSION_SECRET` | HMAC key for session tokens (≥32 chars) |
+| `POSTGRES_URL` (or `DATABASE_URL`) | Postgres connection string |
 
-**Optional but functionally required:**
-- Oracle connection params (`ORACLE_URL` or `ORACLE_HOST/PORT/SERVICE/USER/PASSWORD`) — without these, product lookups will fail. App logs a warning but continues.
+**Optional env vars:**
+| Variable | Purpose | Default |
+|---|---|---|
+| `PORT` | HTTP listen port | `3000` |
+| `APP_ENV` | Environment name | `development` |
+| `SESSION_TTL` | Session duration | `8h` |
+| `PG_MAX_CONNS` | Postgres pool size | `10` |
+| `ORACLE_URL` | Oracle direct DSN | — |
+| `ORACLE_HOST` | Oracle host | `localhost` |
+| `ORACLE_PORT` | Oracle port | `1521` |
+| `ORACLE_SERVICE` | Oracle service | `xe` |
+| `ORACLE_USER` | Oracle user | — |
+| `ORACLE_PASSWORD` | Oracle password | — |
+| `ORACLE_MAX_CONNS` | Oracle pool size | `5` |
+| `ORACLE_IDLE_CONNS` | Oracle idle pool | `3` |
+| `ORACLE_IDLE_TIME` | Oracle idle timeout | `5m` |
 
 **Secrets location:**
-- `.env` file (gitignored, loaded at startup by `loadDotEnv()` in `cmd/server/utils.go:89-122`)
-- Environment variables override `.env` values
+- `.env` file in project root (gitignored per `.gitignore:1`)
+- `.env.example` committed to repo as a template (no secrets)
 
 ## Webhooks & Callbacks
 
@@ -86,8 +115,16 @@
 - None. No webhook endpoints.
 
 **Outgoing:**
-- None. The app does not call external APIs.
+- None. No webhook dispatches.
+
+## Frontend Assets
+
+All frontend assets are embedded in the Go binary at build time via `go:embed` (`cmd/server/main.go:206`). Assets served by the application server itself on dedicated routes defined in `cmd/server/main.go:86-93`. No CDN, no external asset host.
+
+- `htmx.min.js` — Embedded HTMX library, served at `GET /htmx.min.js`
+- CSS: `style.css`, `admin.css` — Served at `GET /style.css`, `GET /admin.css`
+- JS: `shared.js`, `app.js`, `dashboard.js`, `admin.js`, `login.js`
 
 ---
 
-*Integration audit: 2026-06-05*
+*Integration audit: 2026-06-08*

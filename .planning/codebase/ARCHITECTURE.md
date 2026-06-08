@@ -1,264 +1,304 @@
-<!-- refreshed: 2026-06-05 -->
+<!-- refreshed: 2026-06-08 -->
 # Architecture
 
-**Analysis Date:** 2026-06-05
+**Analysis Date:** 2026-06-08
 
 ## System Overview
 
 ```text
-┌──────────────────────────────────────────────────────────────────┐
-│                       HTTP Layer                                 │
-│  net/http.ServeMux routing + middleware stack                    │
-│  `cmd/server/main.go`                                            │
-│     ├── securityHeaders()                                        │
-│     ├── csrfMiddleware()                                         │
-│     └── log()                                                    │
-├──────────────────┬──────────────────┬────────────────────────────┤
-│   Page Handlers  │   API Handlers   │    Static Assets           │
-│  `handlers.go`   │ `api_handlers.go`│    `main.go` (serveJS)     │
-│                  │                  │                             │
-│  /login          │  /api/auth/*     │  /style.css                │
-│  /home           │  /api/empresas   │  /app.js                   │
-│  /atividades     │  /api/produtos/* │  /htmx.min.js             │
-│  /dashboard      │  /api/atividades/*│                            │
-│  /admin          │  /api/dashboard/*│                            │
-│  /dashboard/print│  /api/admin/*    │                            │
-└────────┬─────────┴────────┬─────────┴──────────┬─────────────────┘
-         │                  │                     │
-         ▼                  ▼                     │
-┌─────────────────────────────────────────────────┴──┐
-│                 Application Layer                    │
-│  `cmd/server/auth.go`  — auth, sessions, RBAC       │
-│  `cmd/server/db.go`    — queries, migrations        │
-│  `cmd/server/utils.go` — config, logging, helpers   │
-│  `cmd/server/models.go`— struct definitions         │
-└─────────────────────────────────────────────────────┘
-         │
-         ▼
-┌─────────────────────────────────────────────────────┐
-│  Data Stores                                         │
-│                                                      │
-│  PostgreSQL (pgx)       Oracle (go-ora, read-only)   │
-│  ─────────────────      ─────────────────────        │
-│  users                  MAX_EMPRESA (companies)      │
-│  atividades             MRL_LOCAL (locations)        │
-│  atividade_enderecos    MAP_PRODUTO (products)       │
-│  produto_verificacao    MRL_PRODUTOEMPRESA           │
-│                         MRL_PRODLOCAL                │
-│                         MAP_PRODCODIGO               │
-└─────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│                       HTTP / Client Layer                          │
+│  Browser (HTMX + JS SPA)  |  REST API clients (cURL, mobile)      │
+│  `cmd/server/templates/*.html` | `cmd/server/templates/*.js`       │
+└──────────────────────────────┬────────────────────────────────────┘
+                               │
+                               ▼
+┌───────────────────────────────────────────────────────────────────┐
+│                      Middleware Chain                              │
+│  ┌────────┐  ┌──────────┐  ┌───────────────┐  ┌──────────────┐  │
+│  │  log   │→ │ security │→ │ csrfMiddleware│→ │  ServeMux    │  │
+│  │(utils) │  │ (Headers)│  │  (auth.ts)    │  │  (main.go)   │  │
+│  └────────┘  └──────────┘  └───────────────┘  └──────┬───────┘  │
+│                                                       │           │
+└───────────────────────────────────────────────────────┼───────────┘
+                                                         │
+                                                         ▼
+┌───────────────────────────────────────────────────────────────────┐
+│                    Handler Layer (HTTP)                            │
+│  ┌─────────────────────┐  ┌───────────────────────────────────┐   │
+│  │  Page Handlers       │  │  API Handlers                     │   │
+│  │  `handlers.go`       │  │  `api_handlers.go` + `handlers.go`│   │
+│  │  /login, /dashboard, │  │  /api/auth/*, /api/empresas,      │   │
+│  │  /atividades, /admin  │  │  /api/produtos/*, /api/atividades │   │
+│  └──────────┬───────────┘  └──────────────┬────────────────────┘   │
+│             │                             │                        │
+└─────────────┼─────────────────────────────┼────────────────────────┘
+               │                             │
+               ▼                             ▼
+┌───────────────────────────────────────────────────────────────────┐
+│                  Application / Business Layer                      │
+│  ┌─────────────────────┐  ┌───────────────────────────────────┐   │
+│  │  Auth & Session     │  │  Data Access / Queries            │   │
+│  │  `auth.go`          │  │  `db.go`                          │   │
+│  │  token management,  │  │  Postgres + Oracle read operations │   │
+│  │  RBAC, CSRF          │  │  migrations, seeders              │   │
+│  └──────────┬───────────┘  └──────────────┬────────────────────┘   │
+└─────────────┼─────────────────────────────┼────────────────────────┘
+               │                             │
+               ▼                             ▼
+┌───────────────────────────────────────────────────────────────────┐
+│                      Data Store Layer                              │
+│  ┌──────────────────────┐  ┌────────────────────────────────┐     │
+│  │  PostgreSQL (app)    │  │  Oracle (read-only, source)    │     │
+│  │  users, atividades,  │  │  empresas, locais, produtos    │     │
+│  │  produto_verificacao  │  │  CONSINCO schema              │     │
+│  │  database/sql + pgx  │  │  database/sql + go-ora        │     │
+│  └──────────────────────┘  └────────────────────────────────┘     │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 ## Component Responsibilities
 
 | Component | Responsibility | File |
 |-----------|----------------|------|
-| App struct | Shared state container (cfg, pg, ora, tpl, loginLimiter) | `cmd/server/models.go:21` |
-| Config struct | All environment-derived config | `cmd/server/models.go:9` |
-| OracleReader | Wraps Oracle DB with read-only guard | `cmd/server/models.go:29`, `cmd/server/db.go:14` |
-| routes() | Registers all URL patterns and middleware chains | `cmd/server/main.go:65` |
-| render() | Renders Go templates to HTTP response | `cmd/server/main.go:114` |
-| Page handlers | Handle HTML page requests (login, dashboard, admin) | `cmd/server/handlers.go` |
-| API handlers | Handle JSON API requests with authenticated user | `cmd/server/api_handlers.go` |
-| currentUser() | Extracts and validates session cookie | `cmd/server/auth.go:17` |
-| requireRole() | Middleware factory for role-gated HTML routes | `cmd/server/auth.go:82` |
-| requireAPI() | Middleware for authenticated API routes | `cmd/server/auth.go:107` |
-| csrfMiddleware() | CSRF protection for POST/PATCH/DELETE | `cmd/server/auth.go:140` |
-| migrate() | Auto-migrates Postgres schema on startup | `cmd/server/db.go:110` |
-| seedAdmin() | Seeds default admin user on startup | `cmd/server/db.go:160` |
-| loadConfig() | Reads env vars into Config struct | `cmd/server/utils.go:17` |
-| loadDotEnv() | Custom .env file parser (no godotenv) | `cmd/server/utils.go:89` |
-| Templates | Embedded HTML templates + JS + CSS via go:embed | `cmd/server/main.go:185` |
+| `App` struct | Application container (config, DB conns, templates, rate limiter) | `cmd/server/models.go:22` |
+| `Config` struct | All environment-derived configuration | `cmd/server/models.go:9` |
+| `OracleReader` | Read-only Oracle proxy with SQL guard | `cmd/server/models.go:30` |
+| Route registration | Maps method+path patterns to handler funcs | `cmd/server/main.go:85` |
+| Page handlers | Render HTML templates for browser | `cmd/server/handlers.go` |
+| API handlers | Return JSON responses for SPA/API clients | `cmd/server/api_handlers.go` |
+| Auth middleware | Session token verification + role checking | `cmd/server/auth.go` |
+| CSRF middleware | Origin check + token validation for mutating requests | `cmd/server/auth.go:156` |
+| Rate limiter | Login brute-force protection | `cmd/server/utils.go:188` |
+| DB migrations | Auto-create/alter Postgres tables on startup | `cmd/server/db.go:111` |
+| Oracle queries | Read-only product/location lookups with SQL injection guard | `cmd/server/db.go:15` |
+| Template engine | Go `html/template` with custom funcs | `cmd/server/main.go:175` |
+| Middleware chain | log → securityHeaders → csrfMiddleware → mux | `cmd/server/main.go:66` |
 
 ## Pattern Overview
 
-**Overall:** Monolithic single-package Go server with flat file organization.
+**Overall:** Flat package MVC variant — single `package main` with files organized by concern (models, handlers, auth, db). No framework, no dependency injection container. The `App` struct serves as the manual DI container holding all dependencies.
 
 **Key Characteristics:**
-- Single `package main` — all files share the same namespace; no internal packages or modules
-- Method receivers on `*App` struct — all handlers and data layer methods hang off a central struct that holds dependencies (DI-light via manual wire-up in `main()`)
-- Middleware chain wrapping pattern — `securityHeaders()` → `csrfMiddleware()` → `log()` → mux
-- Handler signature polymorphism — HTML handlers use `http.HandlerFunc`, API handlers use custom `func(http.ResponseWriter, *http.Request, *User)` wrapped by `requireAPI()`
-- Embedded static assets — all templates, CSS, JS are embedded into the binary via `//go:embed`
+- Single `package main` — all types and functions live in one flat namespace
+- `App` struct as dependency container injected into every handler via method receivers
+- HTMX for progressive enhancement on server-rendered pages; separate SPA-style JS apps for `/atividades` and `/dashboard` using REST API
+- Custom session token (HMAC-signed JSON) with no third-party session library
+- Two data sources: Postgres (app state, write path) and Oracle (read-only product data)
+- Go 1.22+ routing with method+pattern `mux.HandleFunc("GET /path/{id}", handler)` — no router library
 
 ## Layers
 
-**HTTP Routing Layer:**
-- Purpose: Maps URL patterns to handlers, applies middleware
-- Location: `cmd/server/main.go` (routes method, lines 65-113)
-- Contains: Route definitions using Go 1.22 `mux.HandleFunc("METHOD /path", handler)` syntax
-- Depends on: All handler functions defined in `handlers.go`, `api_handlers.go`
-- Used by: `main()` at startup
+**Template / Frontend Layer:**
+- Purpose: HTML rendering and client-side interactivity
+- Location: `cmd/server/templates/`
+- Contains: `.html` Go templates, `.css` stylesheets, `.js` client scripts, vendored `htmx.min.js`
+- Rendered by: `cmd/server/main.go:135` (`App.render` method)
+- Client-side JS: Two separate SPA apps — `/atividades` uses `app.js`, `/dashboard` uses `dashboard.js`, `/admin` uses `admin.js`
+- Pure server-rendered pages: `/login` uses `login.html` + `login.js`
 
-**Middleware Stack:**
-- Purpose: Wraps every request with logging, security headers, CSRF protection, rate limiting
-- Location: `cmd/server/main.go:63` and `cmd/server/auth.go:140`, `cmd/server/utils.go:123,220`
-- Order: `securityHeaders` → `csrfMiddleware` → `log` → handler
-- CSRF skips: `/login` and `/api/auth/login` endpoints
-- Rate limiting: Applies only to login endpoints (5 attempts/min/IP via `rateLimiter`)
+**Handler Layer:**
+- Purpose: HTTP request/response handling
+- Location: `cmd/server/handlers.go` + `cmd/server/api_handlers.go`
+- Contains: Page-rendering functions (return HTML), API JSON endpoints
+- Depends on: `App` struct (for DB, templates, auth, config)
+- Used by: `cmd/server/main.go` routes
 
-**Handler Layer (Page Handlers):**
-- Purpose: Serve HTML pages rendered from Go templates
-- Location: `cmd/server/handlers.go`
-- Contains: Login flow, dashboard, activities, admin CRUD, printing
-- Depends on: `App` methods for DB queries, auth, template rendering
-- Used by: Routes defined in `main.go`
-
-**Handler Layer (API Handlers):**
-- Purpose: Serve JSON API responses for client-side JS (HTMX)
-- Location: `cmd/server/api_handlers.go`
-- Contains: Product lookup, activity finalization, dashboard data, admin CRUD (JSON)
-- Signature: All take `(w, r, u *User)` — authenticated user injected by `requireAPI`
-- Used by: Routes defined in `main.go`
+**Auth Layer:**
+- Purpose: Session management, RBAC, CSRF protection
+- Location: `cmd/server/auth.go`
+- Contains: `currentUser()`, `makeToken()`, `requireRole()`, `requireAPIRole()`, `csrfMiddleware()`
+- Depends on: `App` struct (for DB queries, config)
+- Used by: Route registration wraps most handlers with `requireRole()` or `requireAPIRole()`
 
 **Data Access Layer:**
-- Purpose: Database queries, schema migrations, seeding
+- Purpose: Database queries, migrations, seeding
 - Location: `cmd/server/db.go`
-- Contains: Postgres queries (migrate, CRUD for users/activities/products), Oracle queries via `OracleReader`
-- Dependencies: `database/sql` with pgx driver for Postgres, go-ora driver for Oracle
-- Key constraint: Oracle is read-only — `isReadOnlySQL()` guard rejects non-SELECT/WITH queries
+- Contains: Postgres CRUD, Oracle read-only queries, table migrations, admin seed
+- Depends on: `App.pg` (Postgres `*sql.DB`), `App.ora` (`*OracleReader`)
+- Key detail: `OracleReader.QueryContext()` guards against non-SELECT/WITH queries (`cmd/server/db.go:15`)
+
+**Configuration Layer:**
+- Purpose: Environment loading, config struct building
+- Location: `cmd/server/utils.go`
+- Contains: `loadConfig()`, `loadDotEnv()`, rate limiter, logging middleware, security headers, JSON helpers
 
 **Models Layer:**
-- Purpose: Struct definitions for domain objects and configuration
-- Location: `cmd/server/models.go`, plus API-specific DTOs in `cmd/server/api_handlers.go`
-- Contains: `App`, `Config`, `User`, `Activity`, `ProductVerification`, `OracleProduct`, `finalizeReq`, API DTOs (APIActivity, APIProductVerification, APIUser)
-- Maps: `mapActivity()`, `mapProduct()`, `mapUser()` convert internal models to API-safe DTOs with nullable fields
-
-**Utilities Layer:**
-- Purpose: Configuration loading, logging middleware, helpers, rate limiter
-- Location: `cmd/server/utils.go`
-- Contains: `loadConfig()`, `loadDotEnv()`, `log` middleware, `rateLimiter`, `securityHeaders`, `writeJSON`, `parseFilters`
-
-**Authentication Layer:**
-- Purpose: Session management with HMAC-signed tokens
-- Location: `cmd/server/auth.go`
-- Contains: `currentUser()`, `makeToken()`, `requireRole()`, `requireAPI()`, `csrfMiddleware()`, `revokeSession()`
-- Token format: `base64(payload).base64(HMAC-SHA256(payload))` — custom JWT-like format, no external JWT library
-- Session revocation: Updating `last_token_at` on user row invalidates tokens with `iat` before that time
+- Purpose: Data structures shared across layers
+- Location: `cmd/server/models.go`
+- Contains: `Config`, `App`, `OracleReader`, `User`, `UserRow`, `Activity`, `ProductVerification`, `OracleEmpresa`, `OracleLocal`, `OracleProduct`, `finalizeReq`
+- Also contains API-specific response types in: `cmd/server/api_handlers.go` (`APIActivity`, `APIProductVerification`, `APIUser`, `OracleProductResponse`)
 
 ## Data Flow
 
-### Primary Request Path (Page Request)
+### Primary Request Path (Server-Rendered Page)
 
-1. HTTP request enters `http.ListenAndServe` → `securityHeaders()` middleware sets CSP, HSTS, X-Frame-Options (`cmd/server/utils.go:220`)
-2. → `csrfMiddleware()` checks CSRF on POST/PATCH/DELETE (skips for `/login` and `/api/auth/login`) (`cmd/server/auth.go:140`)
-3. → `log()` middleware records method, path, status, duration (`cmd/server/utils.go:123`)
-4. → `ServeMux` matches route → calls handler
-5. Route handlers protected by `requireRole()` first validate session cookie → call `currentUser()` → check role (`cmd/server/auth.go:82`)
-6. Handler calls `App` methods (e.g., `listActivities()`, `findUserByID()`) → executes SQL → renders template
-7. `render()` executes template from `templatesFS` → writes HTML response (`cmd/server/main.go:114`)
+1. Browser sends request → `http.Server` (`main.go:64`)
+2. Middleware chain processes: `mux` → `log` middleware → `securityHeaders` → `csrfMiddleware` → `http.ServeMux` routing
+3. For protected routes, `requireRole()` middleware (`auth.go:86`) reads session cookie → validates HMAC token → loads user from DB → injects `*User` into request context
+4. Route matches handler: e.g., `GET /dashboard` → `a.dashboardPage` (`handlers.go:76`)
+5. Handler calls data layer: e.g., `a.listActivities(ctx, filters, limit)`, `a.listFilterOptions(ctx)`
+6. Handler calls `a.render(w, "dashboard", data)` which executes Go template
+7. Response returned through middleware chain
 
-### API Request Path
+### SPA Data Flow (REST JSON API)
 
-1. Same middleware stack (securityHeaders → csrf → log)
-2. Route calls `requireAPI()` → validates session cookie via `currentUser()` → injects `*User` into handler (`cmd/server/auth.go:107`)
-3. API handler reads JSON body, calls DB methods, returns `writeJSON()` response (`cmd/server/api_handlers.go`)
+1. Client-side JS fetches `GET /api/dashboard/activities`
+2. `requireAPIRole()` middleware (`auth.go:112`) validates token, checks role, injects user
+3. API handler queries data, maps to API response types, calls `writeJSON()` (`utils.go:177`)
+4. Client JS renders response into DOM (JSON-driven, not HTMX)
 
-### Login Flow
+### HTMX Partial Rendering
 
-1. `GET /login` → `loginPage()` → checks existing session, renders login template (`cmd/server/handlers.go:20`)
-2. `POST /login` → `loginPost()` → rate limiter check → `findUserByUsername()` → bcrypt compare → `makeToken()` → set cookie + CSRF cookie → redirect by role (`cmd/server/handlers.go:28`)
-3. `POST /logout` → `logout()` → `revokeSession()` → clear cookies → redirect (`cmd/server/handlers.go:62`)
+1. HTMX triggers `hx-get="/dashboard/activities/{id}/details"` (`activities_table.html:1`)
+2. Server handler `activityDetails()` (`handlers.go:94`) queries activity + products
+3. Server renders `activity_modal.html` template fragment
+4. HTMX swaps response into target DOM element
 
 ### Activity Finalization Flow
 
-1. HTMX client POSTs JSON to `/api/atividades/finalizar` with products, addresses, company data (`cmd/server/handlers.go:383`)
-2. Server begins Postgres transaction → inserts `atividades` row → inserts `atividade_enderecos` rows → inserts `produto_verificacao` rows for each expected product (status defaults to "RUPTURA" if not read) → commits
-3. Returns JSON with activity ID and timestamp
-
-### Oracle Lookup Flow
-
-1. JavaScript/HTMX calls `/api/produtos/ean/{codigo}` or `/api/produtos/consulta/{codigo}` (`cmd/server/handlers.go:316`)
-2. Handler calls Oracle via `OracleReader.QueryContext()` → SQL is validated by `isReadOnlySQL()` before execution (`cmd/server/db.go:14`)
-3. Result mapped to `OracleProduct` struct → returned as JSON
+1. SPA client collects scan data, sends `POST /api/atividades/finalizar` with JSON body
+2. `requireAPIRole` middleware (`auth.go:112`) authenticates
+3. `apiFinalizar()` handler (`handlers.go:434`) begins Postgres transaction
+4. Inserts into `atividades`, `atividade_enderecos`, `produto_verificacao` tables
+5. Computes divergences, ruptures, replenishments from expected vs read products
+6. Commits transaction
+7. Returns JSON with activity ID, timestamps, and warning counts
 
 **State Management:**
-- Session state: HMAC-signed cookie (`token`) with embedded expiry + session revocation timestamp
-- DB state: Postgres for app data, Oracle for product/company/location reference data (read-only)
-- In-memory state: `rateLimiter` holds login attempt counts per IP (auto-cleanup goroutine every minute)
+- Session state: HMAC-signed JSON token in `token` cookie (HttpOnly, Secure, SameSite=Strict)
+- CSRF state: Random token in `csrf_token` cookie (SameSite=Lax), validated via `X-CSRF-Token` header for API calls
+- No server-side session store — token contains user ID + expiry + issue time, with `last_token_at` revocation check
+- Login rate limiting: In-memory `rateLimiter` struct with per-IP count and 1-minute reset window (`utils.go:188`)
 
 ## Key Abstractions
 
 **`App` struct:**
-- Purpose: Dependency container — all handler methods, DB access, config, and template engine hang off this struct
-- Examples: `a.findUserByUsername()`, `a.listActivities()`, `a.render()`, `a.currentUser()`
-- Location: `cmd/server/models.go:21`
-- Pattern: Single shared instance created in `main()` — manual dependency injection via struct fields
+- Purpose: Dependency container — holds config, DB connections, template engine, rate limiter
+- Examples: `cmd/server/models.go:22`
+- Pattern: Manual DI via struct field injection, all methods are `(a *App)` receivers
 
 **`OracleReader` struct:**
 - Purpose: Wraps `*sql.DB` for Oracle with read-only enforcement
-- Location: `cmd/server/models.go:29`, `cmd/server/db.go:14`
-- Pattern: Decorator — overrides `QueryContext` and `QueryRowContext` to validate SQL before delegation
+- Examples: `cmd/server/models.go:30`, `cmd/server/db.go:15`
+- Pattern: Decorator — intercepts queries, validates read-only before delegating
 
-**`rateLimiter`:**
-- Purpose: Per-IP rate limiting for login endpoints
-- Location: `cmd/server/utils.go:181`
-- Pattern: Mutex-protected map with background goroutine for entry cleanup
+**HMAC Session Token:**
+- Purpose: Custom stateless auth token (not JWT — no nonce, no standard claims)
+- Examples: `cmd/server/auth.go:62`
+- Pattern: `base64(json_payload) + "." + base64(HMAC-SHA256(payload, secret))`
+- Contains: `{id, exp, iat}` — user ID, expiry, issued-at (for revocation)
 
-**Middleware:**
-- Purpose: Cross-cutting concerns (logging, security, CSRF, role gating)
-- Location: `cmd/server/auth.go`, `cmd/server/utils.go`
-- Pattern: Higher-order functions returning `http.Handler` or `http.HandlerFunc`
+**`requireRole` / `requireAPIRole`:**
+- Purpose: Middleware factories for RBAC
+- Examples: `cmd/server/auth.go:86`, `cmd/server/auth.go:112`
+- Pattern: Closure — parses comma-separated allowed roles, returns `http.HandlerFunc` that validates session + role before passing to next handler
 
-**API DTO mapping:**
-- Purpose: Separate internal models from JSON-serializable API types (null-handling)
-- Location: `cmd/server/api_handlers.go:50-101`
-- Pattern: `map*` functions — `mapActivity()`, `mapProduct()`, `mapUser()` convert DB models to `API*` types
+**Template rendering:**
+- Purpose: Go `html/template` with `go:embed` and custom funcs
+- Examples: `cmd/server/main.go:175`
+- Pattern: Single `template.Template` compiled at startup from embedded FS, reused for all responses
 
 ## Entry Points
 
-**`main()`:**
-- Location: `cmd/server/main.go:18`
-- Triggers: `go run ./cmd/server` or compiled binary
-- Responsibilities: Load config → connect Postgres → connect Oracle → wire App → auto-migrate → seed admin → setup routes → start HTTP server
+**`main()` — Application start:**
+- Location: `cmd/server/main.go:20`
+- Triggers: Process start
+- Flow:
+  1. Load `.env` file via `loadDotEnv()` (`utils.go:96`)
+  2. Parse config via `loadConfig()` (`utils.go:17`)
+  3. Open Postgres connection (`pgx` driver)
+  4. Open Oracle connection (`go-ora` driver) with warning on failure
+  5. Construct `App` struct with all dependencies
+  6. Run auto-migrations (`app.migrate()`) — idempotent CREATE TABLE IF NOT EXISTS
+  7. Seed admin user (`app.seedAdmin()`) — creates `admin` with random password on first run
+  8. Register all routes via `app.routes(mux)` (`main.go:85`)
+  9. Wrap mux in middleware chain: `app.csrfMiddleware(app.securityHeaders(app.log(mux)))`
+  10. Start HTTP server with graceful shutdown on SIGINT/SIGTERM
+
+**Routes — All registered in a single method:**
+- Location: `cmd/server/main.go:85`
+- Categories:
+  - Static assets: CSS, JS, HTMX library (`style`, `adminStyle`, `serveJS`)
+  - Page routes (server-rendered): `/`, `/login`, `/home`, `/atividades`, `/dashboard`, `/admin`
+  - HTMX partials: `/dashboard/table`, `/dashboard/activities/{id}/details`, `/admin/users/section`, `/admin/users/{id}/edit`, `/admin/users/{id}/row`
+  - API endpoints: `/api/auth/*`, `/api/empresas`, `/api/locais`, `/api/produtos/*`, `/api/atividades/*`, `/api/admin/users/*`, `/api/dashboard/*`
+  - Health: `GET /api/health`
+
+## Route Structure and Middleware Chain
+
+```
+Mux (http.ServeMux)
+  │
+  ├── Outer wrapper: a.log(mux)                   — logs method, path, status, duration
+  │
+  ├── Mid wrapper: a.securityHeaders(next)         — sets CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, HSTS
+  │
+  └── Inner wrapper: a.csrfMiddleware(next)        — checks Origin on POST/PATCH/DELETE, validates X-CSRF-Token for /api/*
+       │
+       └── Route matching
+            ├── Public: /login (GET), /api/health (GET), static files
+            ├── requireRole(roles): page handlers
+            │   ├── "" (any authenticated) — /atividades
+            │   ├── "gerente,sysadmin"     — /dashboard/*
+            │   └── "sysadmin"             — /admin/*
+            │
+            └── requireAPIRole(roles): API handlers (receives *User as 3rd param)
+                ├── "conferente,gerente,sysadmin" — /api/empresas, /api/produtos/*, /api/atividades/*
+                ├── "gerente,sysadmin"            — /api/dashboard/*
+                └── "sysadmin"                    — /api/admin/users/*
+```
 
 ## Architectural Constraints
 
-- **Threading:** Single-threaded Go HTTP server. Postgres connection pool (`SetMaxOpenConns`), Oracle connection pool (`SetMaxOpenConns`). Rate limiter uses `sync.Mutex` for map access. Background goroutine for rate limiter cleanup.
-- **Global state:** None. All state is encapsulated in the `App` struct created in `main()`. The `rateLimiter` background goroutine accesses the `entries` map via mutex.
-- **Circular imports:** Not possible — single `package main` with no sub-packages.
-- **Oracle read-only constraint:** `isReadOnlySQL()` in `cmd/server/db.go:28` strictly enforces read-only on Oracle connections. DML/DCL/DDL keywords cause query rejection. The guard handles comments, string literals, and nested statements.
-- **Template rendering:** All templates are parsed at startup via `template.ParseFS()` and embedded in the binary. No runtime template reloading.
+- **Threading:** Single-threaded Go HTTP server; each request handled in its own goroutine. Mutex-based rate limiter (`sync.Mutex`) for login attempts.
+- **Global state:** No module-level singletons. All app state lives on the `App` struct. Rate limiter is the only stateful goroutine (background cleanup ticker in `newRateLimiter()`, `utils.go:193`).
+- **Circular imports:** Not possible — single package prevents cycles.
+- **Database connections:** Two separate `*sql.DB` pools — one for Postgres (write-capable), one for Oracle (read-only enforced).
+- **Oracle read-only enforcement:** `isReadOnlySQL()` (`db.go:29`) strips comments and string literals, then checks for DML keywords. This is a defense-in-depth measure on top of using a read-only DB account.
+- **No ORM:** Raw SQL queries throughout `db.go` with manual scanning.
+- **Template embedding:** All templates compiled into binary via `go:embed` at `cmd/server/main.go:206`. No runtime template loading.
+- **Error handling:** All handler errors are logged via `log.Printf` and return generic user-facing messages ("Erro interno do servidor"). No structured error types.
+- **CSRF gap:** The `/login` and `/api/auth/login` endpoints are explicitly excluded from CSRF protection (`auth.go:159`).
 
 ## Anti-Patterns
 
-### Flat Package Structure
+### No structured error types
 
-**What happens:** All Go source files are in `package main` under `cmd/server/`. There are no internal packages, no `internal/`, no domain separation.
-**Why it's wrong:** Creates implicit coupling between all components. Any function can call any other function in any file. No compiler-enforced boundaries between layers (e.g., handler calling another handler).
-**Do this instead:** Split into packages like `internal/auth/`, `internal/handlers/`, `internal/db/`, `internal/models/`. See `cmd/server/utils.go:220` and `cmd/server/handlers.go` — they share the same namespace.
+**What happens:** All errors are `error` interfaces or strings. Error propagation is manual (`if err != nil { log.Printf(...); http.Error(...); return }`) with no centralized error handling.
+**Why it's wrong:** Mixed logging + HTTP response concerns in every handler. Error messages in Portuguese leak business logic but not stack traces.
+**Do this instead:** Define HTTP error response helpers and use Go 1.24+ `errors.Join` or sentinel errors.
 
-### Inline DTO Structs
+### Flat package, no internal modules
 
-**What happens:** Several API handler functions define anonymous structs inline for request bodies (e.g., `cmd/server/handlers.go:244`, `cmd/server/api_handlers.go:118`).
-**Why it's wrong:** Duplicated across form-based handlers (`handlers.go`) and JSON API handlers (`api_handlers.go`). Hard to reuse, no single source of truth for validation rules.
-**Do this instead:** Define shared request/response types in a models file.
+**What happens:** All code in `package main` with no `internal/` packages.
+**Why it's wrong:** No explicit dependency boundaries. Any function can call any other function. Tests import the same flat package.
+**Do this instead:** For future growth, split into `internal/auth`, `internal/db`, `internal/handler` packages.
 
-### Error Handling — Mixed Patterns
+### Mixed rendering strategies
 
-**What happens:** Some handlers use `log.Printf("error: %v", err)` and return a generic message to the client. Others use `writeJSON(w, http.StatusInternalServerError, ...)` directly. No centralized error handler.
-**Why it's wrong:** Inconsistent user-facing error messages, risk of leaking stack traces or DB details.
-**Do this instead:** Use a helper like `func (a *App) internalError(w, err)` that logs and returns a consistent response.
+**What happens:** `/dashboard` and `/admin` have both server-rendered HTML pages (initial load) AND JSON API endpoints (SPA interactions). Some pages use HTMX (`activities_table.html`), others use vanilla JS. The `/login` page is pure server-rendered with JS enhancement.
+**Why it's wrong:** Multiple client rendering strategies increase maintenance burden. Template partials (`activities_table.html`) duplicate the table structure that `dashboard.js` also renders from JSON.
+**Do this instead:** Choose one client rendering approach — either pure server-rendered with HTMX everywhere, or full SPA with one JS entry point.
 
 ## Error Handling
 
-**Strategy:** Inline error checks per handler function. No centralized error handler.
+**Strategy:** Ad-hoc per-handler error handling. Errors are logged server-side, generic messages sent to client.
 
 **Patterns:**
-- `if err != nil { log.Printf(...); http.Error(...) }` — used in page handlers (`handlers.go`)
-- `if err != nil { writeJSON(w, status, errorMap) }` — used in API handlers (`api_handlers.go`)
-- `if err != nil { log.Fatal(err) }` — used in `main()` and `loadConfig()` for fatal startup errors
+- Page handlers: `a.render()` wraps template execution errors with generic 500 (`main.go:135`)
+- API handlers: `writeJSON()` with HTTP status code + simple `{"error": "..."}` body
+- Data layer: Errors propagated upward via `error` return values; Oracle errors are logged as warnings (non-fatal)
+- Panic handling: None explicit — Go http.Server has default panic recovery
 
 ## Cross-Cutting Concerns
 
-**Logging:** Standard `log.Printf` — no structured logging. Requests logged via `log` middleware: `"GET /path 200 5ms"`. Errors logged with `"error: %v"` prefix.
+**Logging:** Standard `log.Printf` throughout. No structured logging, no log levels beyond `log.Printf` / `log.Fatal`. Request logging via `log` middleware (`utils.go:130`) captures method, path, status, duration.
 
-**Validation:** Minimal. Password minimum length checked (8 chars). Role validated against allowed set. Activity `finalizeReq.Empresa` accepts `any` and is stringified with `fmt.Sprint`.
+**Validation:** Minimal. `validRole()` checks allowed roles (`utils.go:148`). Password length check (≥8) in user creation. Input validation is performed client-side.
 
-**Authentication:** Custom HMAC-SHA256 token in cookie. Session secret required (≥32 chars). Session TTL configurable (default 8h). Session revocation via `last_token_at` column.
-
-**CSRF:** Double-submit cookie pattern for API routes. Origin header check for browser requests. `/login` and `/api/auth/login` are exempted.
+**Authentication:** Custom HMAC token in HttpOnly cookie. Session revocation via `last_token_at` timestamp in Postgres. Rate limiting on login endpoints (5 attempts/minute per IP).
 
 ---
 
-*Architecture analysis: 2026-06-05*
+*Architecture analysis: 2026-06-08*

@@ -1,93 +1,107 @@
 # Technology Stack
 
-**Analysis Date:** 2026-06-05
+**Analysis Date:** 2026-06-08
 
 ## Languages
 
 **Primary:**
-- Go 1.23.0 - All server-side logic, API handlers, HTML rendering, database access. Single `main` package in `cmd/server/`.
+- Go 1.23 — All application code is in `/home/bblosangeles/go_simp/cmd/server/` (single `main` package). No sub-packages.
 
-**Frontend:**
-- JavaScript (ES5) - Plain JS files served as static assets via `go:embed`. No bundler, no framework. HTMX library bundled.
-- HTML (Go `html/template`) - Server-rendered templates with `{{define}}`/`{{template}}` blocks. Embedded via `go:embed`.
-- CSS - Two stylesheets served as static assets via `go:embed`.
+**Secondary:**
+- HTML/Go Templates — Server-rendered HTML with Go `html/template`, embedded via `go:embed`
+- CSS — Two stylesheets: `style.css` and `admin.css`
+- JavaScript — Client-side JS files (HTMX-driven, no framework): `shared.js`, `app.js`, `dashboard.js`, `admin.js`, `login.js`
 
 ## Runtime
 
 **Environment:**
-- Go compiled binary (single executable). No external Go runtime dependency.
+- Compiled Go binary (self-contained, no runtime dependency). Uses `net/http` HTTP/1.1 server.
 
 **Package Manager:**
-- Go modules (`go.mod` / `go.sum`)
-- Lockfile: `go.sum` present
+- Go Modules (`go.mod` / `go.sum` at project root)
+
+**Lockfile:**
+- `go.sum` present — standard Go checksum database
 
 ## Frameworks
 
 **Core:**
-- Go standard library `net/http` - HTTP server, routing, middleware. No external web framework.
-- Go `database/sql` - Database abstraction layer for both Postgres and Oracle.
-- `html/template` - Server-side HTML rendering with custom `FuncMap`.
+- None — Uses Go standard library `net/http` exclusively. No external web framework.
 
-**Frontend:**
-- HTMX (bundled as `htmx.min.js` in templates) - AJAX-driven page updates, partial rendering. No frontend framework.
+**Templating:**
+- Go `html/template` — templates embedded via `go:embed` directive in `cmd/server/main.go:206`:
+  ```go
+  //go:embed templates/*.html templates/components/*.html templates/*.css templates/*.js
+  var templatesFS embed.FS
+  ```
 
 **Testing:**
-- Go standard `testing` package - All tests in `cmd/server/main_test.go`. No external test framework.
-- `net/http/httptest` - HTTP handler testing.
+- Go standard `testing` package — all tests in `cmd/server/main_test.go`. No external test frameworks.
 
-**Build/Dev:**
-- Air (`go install github.com/air-verse/air@latest`) - Hot reload during development. Config: `.air.toml`.
+**Frontend:**
+- HTMX (embedded at `cmd/server/templates/htmx.min.js`) — served as a static file route. No npm/node build step.
+- No JS frameworks (React, Vue, etc.)
 
 ## Key Dependencies
 
-**Critical (from `go.mod`):**
-- `github.com/jackc/pgx/v5 v5.7.2` - Postgres driver for `database/sql`. Registered as `"pgx"` driver. Runtime connection pool configurable via env vars.
-- `github.com/sijms/go-ora/v2 v2.8.24` - Oracle driver for `database/sql`. Registered as `"oracle"` driver. READ-ONLY enforced by `isReadOnlySQL()` guard.
-- `golang.org/x/crypto v0.37.0` - `bcrypt` for password hashing (user auth).
+**Critical — Postgres Driver:**
+- `github.com/jackc/pgx/v5 v5.7.2` — Database driver for Postgres, used via `database/sql` stdlib (stdlib driver imported at `cmd/server/main.go:16`: `_ "github.com/jackc/pgx/v5/stdlib"`)
+- Transitive deps: `pgpassfile`, `pgservicefile`, `puddle/v2` (connection pool)
 
-**Infrastructure:**
-- No external Go HTTP framework. No router library. No ORM. No logging library.
-- All middleware (logging, CSRF, security headers, rate limiting) implemented in ~230 lines of hand-written code in `cmd/server/utils.go`.
-- Session tokens: HMAC-SHA256 signed cookies (custom implementation in `cmd/server/auth.go`).
+**Critical — Oracle Driver:**
+- `github.com/sijms/go-ora/v2 v2.8.24` — Oracle database driver, used via `database/sql` (imported at `cmd/server/main.go:17`: `_ "github.com/sijms/go-ora/v2"`)
+- Oracle connection is **read-only** guarded by `isReadOnlySQL()` in `cmd/server/db.go:29`
+
+**Critical — Cryptography:**
+- `golang.org/x/crypto v0.37.0` — Used for `bcrypt` password hashing in `cmd/server/auth.go` and `cmd/server/handlers.go`
+
+**Transitive:**
+- `golang.org/x/sync v0.13.0` — Used by pgx pool
+- `golang.org/x/text v0.24.0` — Used by pgx
 
 ## Configuration
 
-**Environment (loaded from `.env` via custom `loadDotEnv()` in `cmd/server/utils.go`):**
-| Variable | Required | Default | Purpose |
+**Environment:**
+- `.env` file loaded manually via `loadDotEnv()` in `cmd/server/utils.go:96` (custom key-value parser, NOT godotenv)
+- Environment variables override `.env` values (checked by `os.LookupEnv` before `os.Setenv`)
+
+**Key Configs (all via env vars):**
+
+| Env Variable | Default | Required | Purpose |
 |---|---|---|---|
-| `PORT` | No | `3000` | HTTP listen port |
-| `APP_ENV` | No | `development` | Controls HSTS header (prod only) |
-| `SESSION_SECRET` | Yes | — | HMAC key for session tokens (≥32 chars) |
-| `POSTGRES_URL` / `DATABASE_URL` | Yes | — | Postgres connection string |
-| `ORACLE_URL` | No | built from `ORACLE_HOST/PORT/SERVICE/USER/PASSWORD` | Oracle direct connection URL |
-| `ORACLE_HOST` | No | `localhost` | Oracle host |
-| `ORACLE_PORT` | No | `1521` | Oracle port |
-| `ORACLE_SERVICE` | No | `xe` | Oracle service name |
-| `ORACLE_USER` | No | — | Oracle user |
-| `ORACLE_PASSWORD` | No | — | Oracle password |
-| `SESSION_TTL` | No | `8h` | Session cookie TTL (Go duration) |
-| `PG_MAX_CONNS` | No | `10` | Postgres max open connections |
-| `ORACLE_MAX_CONNS` | No | `5` | Oracle max open connections |
-| `ORACLE_IDLE_CONNS` | No | `1` | Oracle max idle connections |
+| `PORT` | `3000` | No | HTTP listen port |
+| `APP_ENV` | `development` | No | Environment name; enables HSTS in production |
+| `SESSION_SECRET` | — | Yes (min 32 chars) | HMAC signing key for session tokens |
+| `SESSION_TTL` | `8h` | No | Session cookie lifetime (Go duration) |
+| `POSTGRES_URL` / `DATABASE_URL` | — | Yes | Postgres connection string |
+| `PG_MAX_CONNS` | `10` | No | Postgres pool max open connections |
+| `ORACLE_URL` | — | No (see individual vars) | Oracle connection string (wins over individual vars) |
+| `ORACLE_HOST` | `localhost` | No | Oracle host |
+| `ORACLE_PORT` | `1521` | No | Oracle port |
+| `ORACLE_SERVICE` | `xe` | No | Oracle service name |
+| `ORACLE_USER` | — | No | Oracle username (required if no ORACLE_URL) |
+| `ORACLE_PASSWORD` | — | No | Oracle password (required if no ORACLE_URL) |
+| `ORACLE_MAX_CONNS` | `5` | No | Oracle pool max open connections |
+| `ORACLE_IDLE_CONNS` | `3` | No | Oracle pool max idle connections |
+| `ORACLE_IDLE_TIME` | `5m` | No | Oracle conn max idle time (Go duration) |
 
 **Build:**
-- `.air.toml` - Air hot-reload config: builds to `.tmp/main`, watches `.go`, `.html`, `.tpl`, `.tmpl` extensions.
-- `.gitignore` - ignores `.env`, `tmp/`, `bin/`, `.tmp/`.
+- No build config file (pure Go, no build tags or CGo used)
+- Hot-reload via `air` — config at `.air.toml` (builds to `.tmp/main`, watches `.go`, `.html`, `.tpl`, `.tmpl`)
 
 ## Platform Requirements
 
 **Development:**
 - Go 1.23+
-- Air (optional, for hot reload)
-- Postgres instance
-- Oracle instance (optional for dev, app warns on ping failure but continues)
+- Air (optional, for hot reload): `go install github.com/air-verse/air@latest`
+- Postgres instance (local or remote)
+- Oracle instance (optional, some features degrade gracefully)
 
 **Production:**
-- Compiled binary — deploy as single executable
-- Postgres database (required)
-- Oracle database (required for product/company/local lookups)
-- No external web server required (Go serves directly)
+- Compiled Go binary — architecture: `linux/amd64` (no platform-specific deps detected)
+- Postgres database
+- Oracle database (optional — app runs without it, health check reports `oracle_down`)
 
 ---
 
-*Stack analysis: 2026-06-05*
+*Stack analysis: 2026-06-08*
