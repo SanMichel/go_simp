@@ -1,29 +1,14 @@
 // src/client/shared/api.ts
 async function apiCall(endpoint, options = {}, onUnauthorized) {
-  const headers = {
-    "Content-Type": "application/json"
-  };
-  async function execute() {
-    return fetch(endpoint, {
+  try {
+    const res = await fetch(endpoint, {
       ...options,
-      headers: { ...headers, ...options.headers },
+      headers: { "Content-Type": "application/json", ...options.headers },
       credentials: "include"
     });
-  }
-  try {
-    let res = await execute();
     if (res.status === 401) {
-      const refreshRes = await fetch("/api/auth/refresh", {
-        method: "POST",
-        credentials: "include"
-      });
-      if (refreshRes.ok) {
-        res = await execute();
-      } else {
-        if (onUnauthorized)
-          onUnauthorized();
-        throw new Error("Unauthorized");
-      }
+      onUnauthorized?.();
+      return { ok: false, status: 401, data: { error: "Sessão expirada" } };
     }
     let data;
     const contentType = res.headers.get("content-type");
@@ -35,9 +20,6 @@ async function apiCall(endpoint, options = {}, onUnauthorized) {
     }
     return { ok: res.ok, status: res.status, data };
   } catch (e) {
-    if (e instanceof Error && e.message === "Unauthorized") {
-      return { ok: false, status: 401, data: { error: "Unauthorized" } };
-    }
     console.error(`API Call failed: ${endpoint}`, e);
     return {
       ok: false,

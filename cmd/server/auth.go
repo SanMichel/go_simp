@@ -14,6 +14,10 @@ import (
 	"time"
 )
 
+type ctxKey string
+
+const ctxUser ctxKey = "user"
+
 func (a *App) currentUser(r *http.Request) (*User, error) {
 	c, err := r.Cookie("token")
 	if err != nil {
@@ -100,15 +104,26 @@ func (a *App) requireRole(roles string, next http.HandlerFunc) http.HandlerFunc 
 			}
 			return
 		}
-		next(w, r)
+		ctx := context.WithValue(r.Context(), ctxUser, u)
+		next(w, r.WithContext(ctx))
 	}
 }
 
-func (a *App) requireAPI(next func(http.ResponseWriter, *http.Request, *User)) http.HandlerFunc {
+func (a *App) requireAPIRole(roles string, next func(http.ResponseWriter, *http.Request, *User)) http.HandlerFunc {
+	allowed := map[string]bool{}
+	for _, r := range strings.Split(roles, ",") {
+		if r != "" {
+			allowed[r] = true
+		}
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		u, err := a.currentUser(r)
 		if err != nil {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Não autorizado"})
+			return
+		}
+		if len(allowed) > 0 && !allowed[u.Role] {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "Sem permissão"})
 			return
 		}
 		next(w, r, u)
@@ -116,9 +131,10 @@ func (a *App) requireAPI(next func(http.ResponseWriter, *http.Request, *User)) h
 }
 func (a *App) redirectByRole(w http.ResponseWriter, r *http.Request, role string) {
 	dest := "/atividades"
-	if role == "sysadmin" {
+	switch role {
+	case "sysadmin":
 		dest = "/admin"
-	} else if role == "gerente" {
+	case "gerente":
 		dest = "/dashboard"
 	}
 	http.Redirect(w, r, dest, http.StatusFound)

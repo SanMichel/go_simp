@@ -107,8 +107,8 @@ function buildQueryString() {
   params.push("limit=100");
   const keys = ["username", "empresa", "rua", "predio", "impresso", "id"];
   for (const key of keys) {
-    if (filterState[key] && filterState[key].length > 0) {
-      params.push(`filter_${key}=${encodeURIComponent(filterState[key].join(","))}`);
+    for (const val of (filterState[key] || [])) {
+      params.push(`filter_${key}[]=${encodeURIComponent(val)}`);
     }
   }
   if (dateFilterState.dataFimStart) {
@@ -1005,7 +1005,7 @@ document.getElementById("form-admin-login")?.addEventListener("submit", async (e
       }
       return;
     }
-    setToken(res.data.token);
+    setToken("cookie");
     setUser(res.data.user);
     localStorage.setItem("simp_user", JSON.stringify(user));
     updateAuthState();

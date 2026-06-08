@@ -5,7 +5,7 @@ Single `main` package in `cmd/server/`. No sub-packages, no internal modules.
 ## Stack
 
 - Go `net/http` + `database/sql` with pgx (Postgres) + go-ora (Oracle, **read-only**)
-- HTMX + Go templates — templates are separate `.html` files in `cmd/server/templates/` embedded using `go:embed`. CSS is a `const` string in `main.go`.
+- HTMX + Go templates — templates are separate `.html` files in `cmd/server/templates/` embedded using `go:embed`. CSS is in `templates/style.css` and `templates/admin.css`.
 
 ## Quick start
 
@@ -15,7 +15,7 @@ go mod tidy
 go run ./cmd/server    # or: air (hot reload via .air.toml)
 ```
 
-On first start, auto-migrates tables and seeds `admin`/`admin` as `sysadmin`.
+On first start, auto-migrates tables and seeds `admin` as `sysadmin` with random password (logged on first start).
 
 ## Tests
 

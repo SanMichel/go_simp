@@ -16,6 +16,7 @@ type Config struct {
 	PGMaxConns      int
 	OracleMaxConns  int
 	OracleIdleConns int
+	OracleIdleTime  time.Duration
 }
 
 type App struct {
@@ -125,17 +126,18 @@ type OracleProduct struct {
 	CODIGOS       sql.NullString  `json:"CODIGOS,omitempty"`
 }
 type finalizeReq struct {
-	Empresa      any      `json:"empresa"`
+	Empresa      int      `json:"empresa"`
 	SeqLocal     int      `json:"seqlocal"`
 	Rua          string   `json:"rua"`
 	Predio       []string `json:"predio"`
 	ReadProducts []struct {
-		SeqProduto int    `json:"seqproduto"`
-		EAN        string `json:"ean"`
-		Rua        string `json:"rua"`
-		Predio     string `json:"predio"`
-		Status     string `json:"status"`
-		Reposicao  bool   `json:"reposicao"`
+		SeqProduto   int    `json:"seqproduto"`
+		EAN          string `json:"ean"`
+		Rua          string `json:"rua"`
+		Predio       string `json:"predio"`
+		Status       string `json:"status"`
+		Reposicao    bool   `json:"reposicao"`
+		Desccompleta string `json:"desccompleta"`
 	} `json:"readProducts"`
 	ExpectedProducts []struct {
 		SeqProduto int `json:"seqproduto"`

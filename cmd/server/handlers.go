@@ -1,9 +1,9 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -69,12 +69,12 @@ func (a *App) logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) atividadesPage(w http.ResponseWriter, r *http.Request) {
-	u, _ := a.currentUser(r)
+	u := r.Context().Value(ctxUser).(*User)
 	a.render(w, "atividades", map[string]any{"User": u})
 }
 
 func (a *App) dashboardPage(w http.ResponseWriter, r *http.Request) {
-	u, _ := a.currentUser(r)
+	u := r.Context().Value(ctxUser).(*User)
 	activities, _ := a.listActivities(r.Context(), parseFilters(r), 50)
 	options, _ := a.listFilterOptions(r.Context())
 	a.render(w, "dashboard", map[string]any{"User": u, "Activities": activities, "Options": options, "Filters": parseFilters(r)})
@@ -133,13 +133,15 @@ func (a *App) printActivities(w http.ResponseWriter, r *http.Request, ids []int)
 		}
 	}
 	for _, id := range ids {
-		_, _ = a.pg.ExecContext(r.Context(), `UPDATE atividades SET impresso=true WHERE id=$1`, id)
+		if _, err := a.pg.ExecContext(r.Context(), `UPDATE atividades SET impresso=true WHERE id=$1`, id); err != nil {
+			log.Printf("warn: failed to set impresso for activity %d: %v", id, err)
+		}
 	}
 	a.render(w, "print", map[string]any{"Bundles": bundles})
 }
 
 func (a *App) adminPage(w http.ResponseWriter, r *http.Request) {
-	u, _ := a.currentUser(r)
+	u := r.Context().Value(ctxUser).(*User)
 	users, err := a.listUsers(r.Context())
 	if err != nil {
 		log.Printf("error: %v", err)
@@ -176,7 +178,7 @@ func (a *App) adminCreateUser(w http.ResponseWriter, r *http.Request) {
 	_, err = a.pg.ExecContext(r.Context(), `INSERT INTO users (username, password, role) VALUES ($1,$2,$3)`, username, string(hash), role)
 	users, _ := a.listUsers(r.Context())
 	if err != nil {
-		log.Printf("error: %v", err)
+		log.Printf("error creating user: %v", err)
 		a.render(w, "users_section", map[string]any{"Users": users, "Message": "Erro interno do servidor", "Error": true})
 		return
 	}
@@ -204,7 +206,12 @@ func (a *App) adminUserRow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) adminUpdateUser(w http.ResponseWriter, r *http.Request) {
+	currentUser := r.Context().Value(ctxUser).(*User)
 	id, _ := strconv.Atoi(r.PathValue("id"))
+	if id == currentUser.ID {
+		http.Error(w, "Não é possível editar o próprio usuário", http.StatusBadRequest)
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		log.Printf("error: %v", err)
 		http.Error(w, "Erro interno do servidor", http.StatusBadRequest)
@@ -216,15 +223,28 @@ func (a *App) adminUpdateUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "role inválido", http.StatusBadRequest)
 		return
 	}
+	target, err := a.findUserByID(r.Context(), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if target.Role == "sysadmin" && currentUser.Role != "sysadmin" {
+		http.Error(w, "Sem permissão", http.StatusForbidden)
+		return
+	}
 	if password != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		_, _ = a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, password=$2, last_token_at=now() WHERE id=$3`, role, string(hash), id)
+		if _, err := a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, password=$2, last_token_at=now() WHERE id=$3`, role, string(hash), id); err != nil {
+			log.Printf("error updating user %d: %v", id, err)
+		}
 	} else {
-		_, _ = a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, last_token_at=now() WHERE id=$2`, role, id)
+		if _, err := a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, last_token_at=now() WHERE id=$2`, role, id); err != nil {
+			log.Printf("error updating user %d: %v", id, err)
+		}
 	}
 	u, _ := a.findUserByID(r.Context(), id)
 	a.render(w, "user_row", map[string]any{"RowUser": u})
@@ -264,8 +284,7 @@ func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{Name: "token", Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: int(a.cfg.SessionTTL.Seconds()), Secure: true})
 	a.setCSRFCookie(w)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"token": token,
-		"user":  map[string]any{"id": u.ID, "username": u.Username, "role": u.Role},
+		"user": map[string]any{"id": u.ID, "username": u.Username, "role": u.Role},
 	})
 }
 
@@ -279,7 +298,9 @@ func (a *App) apiLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiEmpresas(w http.ResponseWriter, r *http.Request, u *User) {
-	rows, err := a.ora.QueryContext(r.Context(), `SELECT me.NROEMPRESA, me.NOMEREDUZIDO FROM CONSINCO.MAX_EMPRESA me WHERE me.STATUS = 'A' ORDER BY me.NROEMPRESA`)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	rows, err := a.ora.QueryContext(ctx, `SELECT me.NROEMPRESA, me.NOMEREDUZIDO FROM CONSINCO.MAX_EMPRESA me WHERE me.STATUS = 'A' ORDER BY me.NROEMPRESA`)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao buscar empresas"})
 		return
@@ -296,8 +317,10 @@ func (a *App) apiEmpresas(w http.ResponseWriter, r *http.Request, u *User) {
 }
 
 func (a *App) apiLocais(w http.ResponseWriter, r *http.Request, u *User) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
 	empresa, _ := strconv.Atoi(r.URL.Query().Get("empresa"))
-	rows, err := a.ora.QueryContext(r.Context(), `SELECT ml.SEQLOCAL, ml.NROEMPRESA, ml.LOCAL FROM CONSINCO.MRL_LOCAL ml WHERE ml.STATUS = 'A' AND ml.NROEMPRESA = :1 ORDER BY ml.SEQLOCAL`, empresa)
+	rows, err := a.ora.QueryContext(ctx, `SELECT ml.SEQLOCAL, ml.NROEMPRESA, ml.LOCAL FROM CONSINCO.MRL_LOCAL ml WHERE ml.STATUS = 'A' AND ml.NROEMPRESA = :1 ORDER BY ml.SEQLOCAL`, empresa)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao buscar locais"})
 		return
@@ -314,10 +337,12 @@ func (a *App) apiLocais(w http.ResponseWriter, r *http.Request, u *User) {
 }
 
 func (a *App) apiProdutoEAN(w http.ResponseWriter, r *http.Request, u *User) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
 	codigo := r.PathValue("codigo")
 	empresa, _ := strconv.Atoi(r.URL.Query().Get("empresa"))
 	seqlocal, _ := strconv.Atoi(r.URL.Query().Get("seqlocal"))
-	p, err := a.findAddressByCode(r.Context(), codigo, empresa, seqlocal)
+	p, err := a.findAddressByCode(ctx, codigo, empresa, seqlocal)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Produto não encontrado"})
 		return
@@ -326,10 +351,12 @@ func (a *App) apiProdutoEAN(w http.ResponseWriter, r *http.Request, u *User) {
 }
 
 func (a *App) apiProdutoConsulta(w http.ResponseWriter, r *http.Request, u *User) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
 	codigo := r.PathValue("codigo")
 	empresa, _ := strconv.Atoi(r.URL.Query().Get("empresa"))
 	seqlocal, _ := strconv.Atoi(r.URL.Query().Get("seqlocal"))
-	p, err := a.findFullProductByCode(r.Context(), codigo, empresa, seqlocal)
+	p, err := a.findFullProductByCode(ctx, codigo, empresa, seqlocal)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Produto não encontrado"})
 		return
@@ -338,11 +365,13 @@ func (a *App) apiProdutoConsulta(w http.ResponseWriter, r *http.Request, u *User
 }
 
 func (a *App) apiProdutosLocal(w http.ResponseWriter, r *http.Request, u *User) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
 	empresa, _ := strconv.Atoi(r.URL.Query().Get("empresa"))
 	seqlocal, _ := strconv.Atoi(r.URL.Query().Get("seqlocal"))
 	rua := r.URL.Query().Get("rua")
 	predio := r.URL.Query().Get("predio")
-	rows, err := a.ora.QueryContext(r.Context(), `SELECT mrlp.SEQPRODUTO, mrlp.NRORUA, mrlp.NROPREDIO, mrlp.ESTOQUE FROM CONSINCO.MRL_PRODLOCAL mrlp WHERE mrlp.SEQLOCAL = :1 AND mrlp.ESTOQUE > 0 AND mrlp.NRORUA = :2 AND mrlp.NROPREDIO = :3 AND mrlp.NROEMPRESA = :4`, seqlocal, rua, predio, empresa)
+	rows, err := a.ora.QueryContext(ctx, `SELECT mrlp.SEQPRODUTO, mrlp.NRORUA, mrlp.NROPREDIO, mrlp.ESTOQUE FROM CONSINCO.MRL_PRODLOCAL mrlp WHERE mrlp.SEQLOCAL = :1 AND mrlp.ESTOQUE > 0 AND mrlp.NRORUA = :2 AND mrlp.NROPREDIO = :3 AND mrlp.NROEMPRESA = :4`, seqlocal, rua, predio, empresa)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao buscar produtos"})
 		return
@@ -386,10 +415,14 @@ func (a *App) apiFinalizar(w http.ResponseWriter, r *http.Request, u *User) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSON inválido"})
 		return
 	}
+	if req.Empresa == 0 || req.Rua == "" || req.SeqLocal == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Campos obrigatórios ausentes"})
+		return
+	}
 	if len(req.Predio) == 0 {
 		req.Predio = []string{""}
 	}
-	empresa := fmt.Sprint(req.Empresa)
+	empresa := strconv.Itoa(req.Empresa)
 	tx, err := a.pg.BeginTx(r.Context(), nil)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao iniciar transação"})
@@ -411,17 +444,19 @@ func (a *App) apiFinalizar(w http.ResponseWriter, r *http.Request, u *User) {
 	}
 
 	read := map[int]struct {
-		Status    string
-		Reposicao bool
-		Predio    string
+		Status       string
+		Reposicao    bool
+		Predio       string
+		Desccompleta string
 	}{}
 	seqSet := map[int]bool{}
 	for _, p := range req.ReadProducts {
 		read[p.SeqProduto] = struct {
-			Status    string
-			Reposicao bool
-			Predio    string
-		}{p.Status, p.Reposicao, p.Predio}
+			Status       string
+			Reposicao    bool
+			Predio       string
+			Desccompleta string
+		}{p.Status, p.Reposicao, p.Predio, p.Desccompleta}
 		seqSet[p.SeqProduto] = true
 	}
 	for _, p := range req.ExpectedProducts {
@@ -438,8 +473,13 @@ func (a *App) apiFinalizar(w http.ResponseWriter, r *http.Request, u *User) {
 			ruaLida = sql.NullString{String: req.Rua, Valid: true}
 			predioLido = sql.NullString{String: firstNonEmpty(rp.Predio, req.Predio[0]), Valid: true}
 		}
-		_, err = tx.ExecContext(r.Context(), `INSERT INTO produto_verificacao (atividade_id, seqproduto, empresa, rua_lida, predio_lido, status, reposicao, estoque) VALUES ($1,$2,$3,$4,$5,$6,$7,0)`, activityID, seq, empresa, ruaLida, predioLido, status, reposicao)
+		desc := sql.NullString{}
+		if rp, ok := read[seq]; ok && rp.Desccompleta != "" {
+			desc = sql.NullString{String: rp.Desccompleta, Valid: true}
+		}
+		_, err = tx.ExecContext(r.Context(), `INSERT INTO produto_verificacao (atividade_id, seqproduto, empresa, rua_lida, predio_lido, status, reposicao, estoque, desccompleta) VALUES ($1,$2,$3,$4,$5,$6,$7,0,$8)`, activityID, seq, empresa, ruaLida, predioLido, status, reposicao, desc)
 		if err != nil {
+			log.Printf("error inserting product_verificacao: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao salvar produtos"})
 			return
 		}

@@ -551,7 +551,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     showLoader(false);
     if (ok) {
       state.user = data.user;
-      state.token = data.token;
+      state.token = "cookie";
       saveState();
       if (state.atividade) {
         showScreen("scanning");
@@ -580,7 +580,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
     showLoader(false);
     if (ok) {
-      state.token = data.token;
+      state.token = "cookie";
       saveState();
       showReauthModal(false);
       alert("Sessão revalidada! Você pode continuar.");
@@ -689,17 +689,7 @@ Deseja DESCARTAR os dados e iniciar uma nova?
     }
   });
   document.getElementById("btn-finalize")?.addEventListener("click", finalizeActivity);
-  document.getElementById("btn-div-continue")?.addEventListener("click", () => {
-    showScreen("scanning");
-    const feedback = document.getElementById("scan-feedback");
-    if (feedback && state.lastScanned) {
-      const lastScannedFromList = [...state.scannedProducts].reverse().find((p) => p.seqproduto === state.lastScanned?.seqproduto);
-      const isRep = lastScannedFromList?.reposicao;
-      feedback.innerHTML = sanitizeHtml(`<div style="color: #f59e0b; font-weight: bold;">${isRep ? "\uD83D\uDCE6 " : ""}⚠️ Divergente: ${state.lastScanned.desccompleta}</div>`);
-    }
-    renderHistory();
-  });
-  document.getElementById("btn-div-reset")?.addEventListener("click", finalizeActivity);
+
   document.getElementById("btn-predio-switch-yes")?.addEventListener("click", async () => {
     if (!state.atividade || !state.lastScanned)
       return;

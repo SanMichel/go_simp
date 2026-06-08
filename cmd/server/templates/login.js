@@ -10,8 +10,6 @@ function isLoginResponse(data) {
   if (!data || typeof data !== "object")
     return false;
   const candidate = data;
-  if (typeof candidate.token !== "string")
-    return false;
   if (!candidate.user || typeof candidate.user !== "object")
     return false;
   const user = candidate.user;

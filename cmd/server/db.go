@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 
@@ -145,6 +146,7 @@ func (a *App) migrate(ctx context.Context) error {
 			estoque INTEGER NOT NULL DEFAULT 0,
 			data_entrada TIMESTAMPTZ
 		)`,
+		`ALTER TABLE produto_verificacao ADD COLUMN IF NOT EXISTS desccompleta TEXT`,
 		`CREATE INDEX IF NOT EXISTS idx_atividades_usuario ON atividades(usuario_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_atividades_data_fim ON atividades(data_fim DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_produto_verificacao_atividade ON produto_verificacao(atividade_id)`,
@@ -167,11 +169,15 @@ func (a *App) seedAdmin(ctx context.Context) error {
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
+	pass := randomString(16)
+	hash, err := bcrypt.GenerateFromPassword([]byte(pass), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
 	_, err = a.pg.ExecContext(ctx, `INSERT INTO users (username, password, role) VALUES ($1, $2, 'sysadmin')`, "admin", string(hash))
+	if err == nil {
+		log.Printf("⚠️  FIRST RUN — admin password: %s  (change immediately)", pass)
+	}
 	return err
 }
 func (a *App) findUserByUsername(ctx context.Context, username string) (*User, error) {
@@ -249,9 +255,15 @@ func (a *App) listActivities(ctx context.Context, f ActivityFilters, limit int) 
 		FROM atividades a
 		LEFT JOIN users u ON u.id=a.usuario_id
 		LEFT JOIN atividade_enderecos e ON e.atividade_id=a.id
-		WHERE %s
-		ORDER BY %s %s
-		LIMIT $%d`, strings.Join(where, " AND "), sort, order, len(args))
+		WHERE a.id IN (
+			SELECT a2.id FROM atividades a2
+			LEFT JOIN users u2 ON u2.id=a2.usuario_id
+			LEFT JOIN atividade_enderecos e2 ON e2.atividade_id=a2.id
+			WHERE %s
+			ORDER BY %s %s
+			LIMIT $%d
+		)
+		ORDER BY %s %s`, strings.Join(where, " AND "), sort, order, len(args), sort, order)
 	rows, err := a.pg.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -314,7 +326,7 @@ func (a *App) activityDetailsData(ctx context.Context, id int) (Activity, []Prod
 	if err != nil || len(acts) == 0 {
 		return Activity{}, nil, sql.ErrNoRows
 	}
-	rows, err := a.pg.QueryContext(ctx, `SELECT id, atividade_id, seqproduto, empresa, rua_lida, predio_lido, rua_esperada, predio_esperado, status, reposicao, estoque, data_entrada FROM produto_verificacao WHERE atividade_id=$1 ORDER BY id`, id)
+	rows, err := a.pg.QueryContext(ctx, `SELECT id, atividade_id, seqproduto, empresa, rua_lida, predio_lido, rua_esperada, predio_esperado, status, reposicao, estoque, data_entrada, desccompleta FROM produto_verificacao WHERE atividade_id=$1 ORDER BY id`, id)
 	if err != nil {
 		return Activity{}, nil, err
 	}
@@ -322,7 +334,7 @@ func (a *App) activityDetailsData(ctx context.Context, id int) (Activity, []Prod
 	var items []ProductVerification
 	for rows.Next() {
 		var p ProductVerification
-		if rows.Scan(&p.ID, &p.AtividadeID, &p.SeqProduto, &p.Empresa, &p.RuaLida, &p.PredioLido, &p.RuaEsperada, &p.PredioEsperado, &p.Status, &p.Reposicao, &p.Estoque, &p.DataEntrada) == nil {
+		if rows.Scan(&p.ID, &p.AtividadeID, &p.SeqProduto, &p.Empresa, &p.RuaLida, &p.PredioLido, &p.RuaEsperada, &p.PredioEsperado, &p.Status, &p.Reposicao, &p.Estoque, &p.DataEntrada, &p.DescCompleta) == nil {
 			// Query Oracle for DescCompleta, MDV, etc.
 			var desc sql.NullString
 			var estq int

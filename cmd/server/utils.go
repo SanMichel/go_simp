@@ -59,10 +59,16 @@ func loadConfig() Config {
 			oracleMaxConns = n
 		}
 	}
-	oracleIdleConns := 1
+	oracleIdleConns := 3
 	if v := os.Getenv("ORACLE_IDLE_CONNS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			oracleIdleConns = n
+		}
+	}
+	oracleIdleTime := 5 * time.Minute
+	if v := os.Getenv("ORACLE_IDLE_TIME"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			oracleIdleTime = d
 		}
 	}
 
@@ -76,6 +82,7 @@ func loadConfig() Config {
 		PGMaxConns:      pgMaxConns,
 		OracleMaxConns:  oracleMaxConns,
 		OracleIdleConns: oracleIdleConns,
+		OracleIdleTime:  oracleIdleTime,
 	}
 }
 

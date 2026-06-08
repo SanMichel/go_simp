@@ -9,6 +9,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -42,6 +44,7 @@ func main() {
 	oracleReader := &OracleReader{db: ora}
 	oracleReader.db.SetMaxOpenConns(cfg.OracleMaxConns)
 	oracleReader.db.SetMaxIdleConns(cfg.OracleIdleConns)
+	oracleReader.db.SetConnMaxIdleTime(cfg.OracleIdleTime)
 	oracleReader.db.SetConnMaxLifetime(time.Hour)
 	if err := oracleReader.db.PingContext(ctx); err != nil {
 		log.Printf("warning: oracle ping failed")
@@ -58,9 +61,26 @@ func main() {
 	mux := http.NewServeMux()
 	app.routes(mux)
 
-	addr := ":" + cfg.Port
-	log.Printf("server ready on http://localhost%s", addr)
-	log.Fatal(http.ListenAndServe(addr, app.csrfMiddleware(app.securityHeaders(app.log(mux)))))
+	srv := &http.Server{
+		Addr:         ":" + cfg.Port,
+		Handler:      app.csrfMiddleware(app.securityHeaders(app.log(mux))),
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+	go func() {
+		log.Printf("server ready on http://localhost%s", srv.Addr)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
+	}()
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("shutting down…")
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer shutdownCancel()
+	_ = srv.Shutdown(shutdownCtx)
 }
 func (a *App) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/health", a.healthCheck)
@@ -93,23 +113,23 @@ func (a *App) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/auth/me", a.apiMe)
 	mux.HandleFunc("POST /api/auth/login", a.apiLogin)
 	mux.HandleFunc("POST /api/auth/logout", a.apiLogout)
-	mux.HandleFunc("GET /api/empresas", a.requireAPI(a.apiEmpresas))
-	mux.HandleFunc("GET /api/locais", a.requireAPI(a.apiLocais))
-	mux.HandleFunc("GET /api/produtos/ean/{codigo}", a.requireAPI(a.apiProdutoEAN))
-	mux.HandleFunc("GET /api/produtos/consulta/{codigo}", a.requireAPI(a.apiProdutoConsulta))
-	mux.HandleFunc("GET /api/produtos/local", a.requireAPI(a.apiProdutosLocal))
-	mux.HandleFunc("POST /api/atividades/finalizar", a.requireAPI(a.apiFinalizar))
-	mux.HandleFunc("GET /api/atividades/last-info", a.requireAPI(a.apiLastInfo))
+	mux.HandleFunc("GET /api/empresas", a.requireAPIRole("conferente,gerente,sysadmin", a.apiEmpresas))
+	mux.HandleFunc("GET /api/locais", a.requireAPIRole("conferente,gerente,sysadmin", a.apiLocais))
+	mux.HandleFunc("GET /api/produtos/ean/{codigo}", a.requireAPIRole("conferente,gerente,sysadmin", a.apiProdutoEAN))
+	mux.HandleFunc("GET /api/produtos/consulta/{codigo}", a.requireAPIRole("conferente,gerente,sysadmin", a.apiProdutoConsulta))
+	mux.HandleFunc("GET /api/produtos/local", a.requireAPIRole("conferente,gerente,sysadmin", a.apiProdutosLocal))
+	mux.HandleFunc("POST /api/atividades/finalizar", a.requireAPIRole("conferente,gerente,sysadmin", a.apiFinalizar))
+	mux.HandleFunc("GET /api/atividades/last-info", a.requireAPIRole("conferente,gerente,sysadmin", a.apiLastInfo))
 
-	mux.HandleFunc("GET /api/admin/users", a.requireAPI(a.apiAdminUsersList))
-	mux.HandleFunc("POST /api/admin/users", a.requireAPI(a.apiAdminUserCreate))
-	mux.HandleFunc("PATCH /api/admin/users/{id}", a.requireAPI(a.apiAdminUserUpdate))
+	mux.HandleFunc("GET /api/admin/users", a.requireAPIRole("sysadmin", a.apiAdminUsersList))
+	mux.HandleFunc("POST /api/admin/users", a.requireAPIRole("sysadmin", a.apiAdminUserCreate))
+	mux.HandleFunc("PATCH /api/admin/users/{id}", a.requireAPIRole("sysadmin", a.apiAdminUserUpdate))
 
-	mux.HandleFunc("GET /api/dashboard/activities/filters", a.requireAPI(a.apiDashboardFilters))
-	mux.HandleFunc("GET /api/dashboard/activities", a.requireAPI(a.apiDashboardActivities))
-	mux.HandleFunc("GET /api/dashboard/activities/{id}", a.requireAPI(a.apiDashboardActivityDetails))
-	mux.HandleFunc("POST /api/dashboard/activities/bulk", a.requireAPI(a.apiDashboardBulkDetails))
-	mux.HandleFunc("PATCH /api/dashboard/activities/bulk/print", a.requireAPI(a.apiDashboardBulkPrint))
+	mux.HandleFunc("GET /api/dashboard/activities/filters", a.requireAPIRole("gerente,sysadmin", a.apiDashboardFilters))
+	mux.HandleFunc("GET /api/dashboard/activities", a.requireAPIRole("gerente,sysadmin", a.apiDashboardActivities))
+	mux.HandleFunc("GET /api/dashboard/activities/{id}", a.requireAPIRole("gerente,sysadmin", a.apiDashboardActivityDetails))
+	mux.HandleFunc("POST /api/dashboard/activities/bulk", a.requireAPIRole("gerente,sysadmin", a.apiDashboardBulkDetails))
+	mux.HandleFunc("PATCH /api/dashboard/activities/bulk/print", a.requireAPIRole("gerente,sysadmin", a.apiDashboardBulkPrint))
 }
 func (a *App) render(w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

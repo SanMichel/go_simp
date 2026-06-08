@@ -141,6 +141,21 @@ func (a *App) apiAdminUserCreate(w http.ResponseWriter, r *http.Request, u *User
 
 func (a *App) apiAdminUserUpdate(w http.ResponseWriter, r *http.Request, u *User) {
 	id, _ := strconv.Atoi(r.PathValue("id"))
+
+	if id == u.ID {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Não é possível editar o próprio usuário"})
+		return
+	}
+	target, err := a.findUserByID(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Usuário não encontrado"})
+		return
+	}
+	if target.Role == "sysadmin" && u.Role != "sysadmin" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Sem permissão"})
+		return
+	}
+
 	var req struct {
 		Role     string `json:"role"`
 		Password string `json:"password"`
@@ -153,12 +168,17 @@ func (a *App) apiAdminUserUpdate(w http.ResponseWriter, r *http.Request, u *User
 	if req.Password != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if err != nil {
+			log.Printf("error hashing password: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao criar hash"})
 			return
 		}
-		_, _ = a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, password=$2, last_token_at=now() WHERE id=$3`, req.Role, string(hash), id)
+		if _, err := a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, password=$2, last_token_at=now() WHERE id=$3`, req.Role, string(hash), id); err != nil {
+			log.Printf("error updating user %d: %v", id, err)
+		}
 	} else {
-		_, _ = a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, last_token_at=now() WHERE id=$2`, req.Role, id)
+		if _, err := a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, last_token_at=now() WHERE id=$2`, req.Role, id); err != nil {
+			log.Printf("error updating user %d: %v", id, err)
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "OK"})
 }
@@ -207,11 +227,21 @@ func (a *App) apiDashboardActivityDetails(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Não encontrado"})
 		return
 	}
+	apiAct := mapActivity(act)
 	apiItems := make([]APIProductVerification, len(items))
 	for i, item := range items {
 		apiItems[i] = mapProduct(item)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"activity": mapActivity(act), "items": apiItems})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":       apiAct.ID,
+		"empresa":  apiAct.Empresa,
+		"username": apiAct.Username,
+		"dataFim":  apiAct.DataFim,
+		"rua":      apiAct.Rua,
+		"predio":   apiAct.Predio,
+		"impresso": apiAct.Impresso,
+		"items":    apiItems,
+	})
 }
 
 func (a *App) apiDashboardBulkDetails(w http.ResponseWriter, r *http.Request, u *User) {
@@ -219,23 +249,34 @@ func (a *App) apiDashboardBulkDetails(w http.ResponseWriter, r *http.Request, u 
 		Ids []int `json:"ids"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
-	type Bundle struct {
-		Activity APIActivity              `json:"activity"`
+	type FlatBundle struct {
+		ID       int                      `json:"id"`
+		Empresa  string                   `json:"empresa"`
+		Username string                   `json:"username"`
+		DataFim  *time.Time               `json:"dataFim"`
+		Rua      string                   `json:"rua"`
+		Predio   string                   `json:"predio"`
+		Impresso bool                     `json:"impresso"`
 		Items    []APIProductVerification `json:"items"`
 	}
-	var bundles []Bundle
+	var bundles []FlatBundle
 	for _, id := range req.Ids {
 		act, items, err := a.activityDetailsData(r.Context(), id)
 		if err == nil {
+			apiAct := mapActivity(act)
 			apiItems := make([]APIProductVerification, len(items))
 			for i, item := range items {
 				apiItems[i] = mapProduct(item)
 			}
-			bundles = append(bundles, Bundle{Activity: mapActivity(act), Items: apiItems})
+			bundles = append(bundles, FlatBundle{
+				ID: apiAct.ID, Empresa: apiAct.Empresa, Username: apiAct.Username,
+				DataFim: apiAct.DataFim, Rua: apiAct.Rua, Predio: apiAct.Predio,
+				Impresso: apiAct.Impresso, Items: apiItems,
+			})
 		}
 	}
 	if bundles == nil {
-		bundles = []Bundle{}
+		bundles = []FlatBundle{}
 	}
 	writeJSON(w, http.StatusOK, bundles)
 }
@@ -246,7 +287,9 @@ func (a *App) apiDashboardBulkPrint(w http.ResponseWriter, r *http.Request, u *U
 	}
 	json.NewDecoder(r.Body).Decode(&req)
 	for _, id := range req.Ids {
-		a.pg.ExecContext(r.Context(), `UPDATE atividades SET impresso=true WHERE id=$1`, id)
+		if _, err := a.pg.ExecContext(r.Context(), `UPDATE atividades SET impresso=true WHERE id=$1`, id); err != nil {
+			log.Printf("warn: failed to set impresso for activity %d: %v", id, err)
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "OK"})
 }
