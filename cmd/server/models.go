@@ -97,6 +97,7 @@ type ProductVerification struct {
 	DescCompleta   sql.NullString
 	MDV            sql.NullFloat64
 	DDV            sql.NullFloat64
+	Reincidencia   int
 }
 
 type OracleEmpresa struct {
@@ -111,19 +112,20 @@ type OracleLocal struct {
 }
 
 type OracleProduct struct {
-	SEQPRODUTO    int             `json:"SEQPRODUTO"`
-	CODACESSO     sql.NullString  `json:"CODACESSO,omitempty"`
-	NRORUA        sql.NullString  `json:"NRORUA,omitempty"`
-	NROPREDIO     sql.NullString  `json:"NROPREDIO,omitempty"`
-	DESCCOMPLETA  sql.NullString  `json:"DESCCOMPLETA,omitempty"`
-	NROEMPRESA    int             `json:"NROEMPRESA,omitempty"`
-	DTAULTENTRADA sql.NullTime    `json:"DTAULTENTRADA,omitempty"`
-	DTAULTVENDA   sql.NullTime    `json:"DTAULTVENDA,omitempty"`
-	ESTQLOJA      int             `json:"ESTQLOJA,omitempty"`
-	MEDVDIAGERAL  sql.NullFloat64 `json:"MEDVDIAGERAL,omitempty"`
-	MARCA         sql.NullString  `json:"MARCA,omitempty"`
-	PRECO_VENDA   sql.NullFloat64 `json:"PRECO_VENDA,omitempty"`
-	CODIGOS       sql.NullString  `json:"CODIGOS,omitempty"`
+	SEQPRODUTO    int             `json:"seqproduto"`
+	CODACESSO     sql.NullString  `json:"codacesso,omitempty"`
+	NRORUA        sql.NullString  `json:"nrorua,omitempty"`
+	NROPREDIO     sql.NullString  `json:"nropredio,omitempty"`
+	DESCCOMPLETA  sql.NullString  `json:"desccompleta,omitempty"`
+	NROEMPRESA    int             `json:"nroempresa,omitempty"`
+	DTAULTENTRADA sql.NullTime    `json:"dtaUltEntrada,omitempty"`
+	DTAULTVENDA   sql.NullTime    `json:"dtaUltVenda,omitempty"`
+	ESTQLOJA      int             `json:"estoque,omitempty"`
+	MEDVDIAGERAL  sql.NullFloat64 `json:"mdv,omitempty"`
+	MARCA         sql.NullString  `json:"marca,omitempty"`
+	PRECO_VENDA   sql.NullFloat64 `json:"precoVenda,omitempty"`
+	CODIGOS       sql.NullString  `json:"codigos,omitempty"`
+	DiasEstoque   sql.NullFloat64 `json:"diasEstoque,omitempty"`
 }
 type finalizeReq struct {
 	Empresa      int      `json:"empresa"`

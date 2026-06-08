@@ -39,6 +39,7 @@ type APIProductVerification struct {
 	DescCompleta   *string  `json:"desccompleta"`
 	MDV            *float64 `json:"mdv"`
 	DDV            *float64 `json:"ddv"`
+	Reincidencia   int      `json:"reincidencia"`
 }
 
 type APIUser struct {
@@ -93,6 +94,79 @@ func mapProduct(p ProductVerification) APIProductVerification {
 		RuaLida: rua, PredioLido: predio, RuaEsperada: expRua, PredioEsperado: expPredio,
 		Status: p.Status, Reposicao: p.Reposicao, Estoque: p.Estoque,
 		DataEntrada: data, DescCompleta: desc, MDV: mdv, DDV: ddv,
+		Reincidencia: p.Reincidencia,
+	}
+}
+
+type OracleProductResponse struct {
+	SeqProduto    int      `json:"seqproduto"`
+	DescCompleta  *string  `json:"desccompleta,omitempty"`
+	Marca         *string  `json:"marca,omitempty"`
+	Rua           *string  `json:"rua,omitempty"`
+	Predio        *string  `json:"predio,omitempty"`
+	Estoque       int      `json:"estoque"`
+	Mdv           *float64 `json:"mdv,omitempty"`
+	DiasEstoque   *float64 `json:"diasEstoque,omitempty"`
+	PrecoVenda    *float64 `json:"precoVenda,omitempty"`
+	DtaUltEntrada *string  `json:"dtaUltEntrada,omitempty"`
+	DtaUltVenda   *string  `json:"dtaUltVenda,omitempty"`
+	Codigos       *string  `json:"codigos,omitempty"`
+	Codacesso     *string  `json:"codacesso,omitempty"`
+}
+
+func mapOracleProduct(p OracleProduct) OracleProductResponse {
+	var desc, marca, codigos, codacesso, rua, predio *string
+	var mdv, diasEstoque, precoVenda *float64
+	var dtaUltEntrada, dtaUltVenda *string
+	if p.DESCCOMPLETA.Valid {
+		s := p.DESCCOMPLETA.String
+		desc = &s
+	}
+	if p.MARCA.Valid {
+		s := p.MARCA.String
+		marca = &s
+	}
+	if p.CODIGOS.Valid {
+		s := p.CODIGOS.String
+		codigos = &s
+	}
+	if p.CODACESSO.Valid {
+		s := p.CODACESSO.String
+		codacesso = &s
+	}
+	if p.NRORUA.Valid {
+		s := p.NRORUA.String
+		rua = &s
+	}
+	if p.NROPREDIO.Valid {
+		s := p.NROPREDIO.String
+		predio = &s
+	}
+	if p.MEDVDIAGERAL.Valid {
+		f := p.MEDVDIAGERAL.Float64
+		mdv = &f
+	}
+	if p.DiasEstoque.Valid {
+		f := p.DiasEstoque.Float64
+		diasEstoque = &f
+	}
+	if p.PRECO_VENDA.Valid {
+		f := p.PRECO_VENDA.Float64
+		precoVenda = &f
+	}
+	if p.DTAULTENTRADA.Valid {
+		s := p.DTAULTENTRADA.Time.Format(time.RFC3339)
+		dtaUltEntrada = &s
+	}
+	if p.DTAULTVENDA.Valid {
+		s := p.DTAULTVENDA.Time.Format(time.RFC3339)
+		dtaUltVenda = &s
+	}
+	return OracleProductResponse{
+		SeqProduto: p.SEQPRODUTO, DescCompleta: desc, Marca: marca,
+		Rua: rua, Predio: predio, Estoque: p.ESTQLOJA, Mdv: mdv, DiasEstoque: diasEstoque,
+		PrecoVenda: precoVenda, DtaUltEntrada: dtaUltEntrada, DtaUltVenda: dtaUltVenda,
+		Codigos: codigos, Codacesso: codacesso,
 	}
 }
 

@@ -356,6 +356,11 @@ func (a *App) activityDetailsData(ctx context.Context, id int) (Activity, []Prod
 				}
 			}
 
+			// Count reincidencia — how many times this product was RUPTURA in other activities
+			a.pg.QueryRowContext(ctx,
+				`SELECT COUNT(*) FROM produto_verificacao WHERE seqproduto=$1 AND empresa=$2 AND status='RUPTURA' AND atividade_id!=$3`,
+				p.SeqProduto, p.Empresa, id).Scan(&p.Reincidencia)
+
 			items = append(items, p)
 		}
 	}
@@ -372,6 +377,44 @@ func (a *App) findAddressByCode(ctx context.Context, codigo string, empresa, seq
 		WHERE mpc.CODACESSO=:3`, seqlocal, empresa, codigo,
 	).Scan(&p.SEQPRODUTO, &p.CODACESSO, &p.NRORUA, &p.NROPREDIO, &p.DESCCOMPLETA)
 	return p, err
+}
+
+func (a *App) findProductsByDescription(ctx context.Context, descricao string, empresa, seqlocal int) ([]OracleProduct, error) {
+	// Split input into words and build pattern: "COCA LT 350" → "%COCA%LT%350%"
+	words := strings.Fields(descricao)
+	var parts []string
+	for _, w := range words {
+		if w != "" {
+			parts = append(parts, strings.ToUpper(w))
+		}
+	}
+	pattern := "%" + strings.Join(parts, "%") + "%"
+	rows, err := a.ora.QueryContext(ctx, `
+		SELECT mpe.SEQPRODUTO, mpe.NROEMPRESA, mpe.DTAULTENTRADA, mpe.DTAULTVENDA, mpe.ESTQLOJA, mpe.MEDVDIAGERAL,
+		       mp.DESCCOMPLETA, mrlp.NRORUA, mrlp.NROPREDIO,
+		       (SELECT MAX(marca) FROM CONSINCO.ETLV_PRODUTO WHERE SEQPRODUTO = mpe.SEQPRODUTO) AS MARCA,
+		       CONSINCO.fBuscaPrecoAtualPdv(mpe.SEQPRODUTO, 1, mpe.NROEMPRESA) AS PRECO_VENDA,
+		       (SELECT LISTAGG(CODACESSO, '|') WITHIN GROUP (ORDER BY CODACESSO) FROM CONSINCO.MAP_PRODCODIGO WHERE SEQPRODUTO = mpe.SEQPRODUTO) AS CODIGOS
+		FROM CONSINCO.MRL_PRODUTOEMPRESA mpe
+		LEFT JOIN CONSINCO.MAP_PRODUTO mp ON mp.SEQPRODUTO=mpe.SEQPRODUTO
+		LEFT JOIN CONSINCO.MRL_PRODLOCAL mrlp ON mrlp.SEQPRODUTO=mpe.SEQPRODUTO AND mrlp.NROEMPRESA=mpe.NROEMPRESA AND mrlp.SEQLOCAL=:1
+		WHERE mpe.NROEMPRESA=:2 AND UPPER(mp.DESCCOMPLETA) LIKE :3 AND ROWNUM <= 20
+		ORDER BY mp.DESCCOMPLETA`, seqlocal, empresa, pattern)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var products []OracleProduct
+	for rows.Next() {
+		var p OracleProduct
+		if err := rows.Scan(&p.SEQPRODUTO, &p.NROEMPRESA, &p.DTAULTENTRADA, &p.DTAULTVENDA, &p.ESTQLOJA, &p.MEDVDIAGERAL, &p.DESCCOMPLETA, &p.NRORUA, &p.NROPREDIO, &p.MARCA, &p.PRECO_VENDA, &p.CODIGOS); err == nil {
+			if p.MEDVDIAGERAL.Valid && p.MEDVDIAGERAL.Float64 > 0 {
+				p.DiasEstoque = sql.NullFloat64{Float64: float64(p.ESTQLOJA) / p.MEDVDIAGERAL.Float64, Valid: true}
+			}
+			products = append(products, p)
+		}
+	}
+	return products, nil
 }
 
 func (a *App) findFullProductByCode(ctx context.Context, codigo string, empresa, seqlocal int) (OracleProduct, error) {
@@ -391,5 +434,8 @@ func (a *App) findFullProductByCode(ctx context.Context, codigo string, empresa,
 		LEFT JOIN CONSINCO.MRL_PRODLOCAL mrlp ON mrlp.SEQPRODUTO=mpe.SEQPRODUTO AND mrlp.NROEMPRESA=mpe.NROEMPRESA AND mrlp.SEQLOCAL=:1
 		WHERE mpe.NROEMPRESA=:2 AND mpe.SEQPRODUTO=:3`, seqlocal, empresa, addr.SEQPRODUTO,
 	).Scan(&p.SEQPRODUTO, &p.NROEMPRESA, &p.DTAULTENTRADA, &p.DTAULTVENDA, &p.ESTQLOJA, &p.MEDVDIAGERAL, &p.DESCCOMPLETA, &p.NRORUA, &p.NROPREDIO, &p.MARCA, &p.PRECO_VENDA, &p.CODIGOS)
+	if err == nil && p.MEDVDIAGERAL.Valid && p.MEDVDIAGERAL.Float64 > 0 {
+		p.DiasEstoque = sql.NullFloat64{Float64: float64(p.ESTQLOJA) / p.MEDVDIAGERAL.Float64, Valid: true}
+	}
 	return p, err
 }

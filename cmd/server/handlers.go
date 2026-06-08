@@ -347,7 +347,7 @@ func (a *App) apiProdutoEAN(w http.ResponseWriter, r *http.Request, u *User) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Produto não encontrado"})
 		return
 	}
-	writeJSON(w, http.StatusOK, p)
+	writeJSON(w, http.StatusOK, mapOracleProduct(p))
 }
 
 func (a *App) apiProdutoConsulta(w http.ResponseWriter, r *http.Request, u *User) {
@@ -361,7 +361,29 @@ func (a *App) apiProdutoConsulta(w http.ResponseWriter, r *http.Request, u *User
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Produto não encontrado"})
 		return
 	}
-	writeJSON(w, http.StatusOK, p)
+	writeJSON(w, http.StatusOK, mapOracleProduct(p))
+}
+
+func (a *App) apiProdutoConsultaDescricao(w http.ResponseWriter, r *http.Request, u *User) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	q := r.URL.Query().Get("q")
+	empresa, _ := strconv.Atoi(r.URL.Query().Get("empresa"))
+	seqlocal, _ := strconv.Atoi(r.URL.Query().Get("seqlocal"))
+	if q == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Parâmetro 'q' é obrigatório"})
+		return
+	}
+	products, err := a.findProductsByDescription(ctx, q, empresa, seqlocal)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro na consulta"})
+		return
+	}
+	resp := make([]OracleProductResponse, len(products))
+	for i, p := range products {
+		resp[i] = mapOracleProduct(p)
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (a *App) apiProdutosLocal(w http.ResponseWriter, r *http.Request, u *User) {

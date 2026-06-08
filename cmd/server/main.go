@@ -117,6 +117,7 @@ func (a *App) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/locais", a.requireAPIRole("conferente,gerente,sysadmin", a.apiLocais))
 	mux.HandleFunc("GET /api/produtos/ean/{codigo}", a.requireAPIRole("conferente,gerente,sysadmin", a.apiProdutoEAN))
 	mux.HandleFunc("GET /api/produtos/consulta/{codigo}", a.requireAPIRole("conferente,gerente,sysadmin", a.apiProdutoConsulta))
+	mux.HandleFunc("GET /api/produtos/consulta", a.requireAPIRole("conferente,gerente,sysadmin", a.apiProdutoConsultaDescricao))
 	mux.HandleFunc("GET /api/produtos/local", a.requireAPIRole("conferente,gerente,sysadmin", a.apiProdutosLocal))
 	mux.HandleFunc("POST /api/atividades/finalizar", a.requireAPIRole("conferente,gerente,sysadmin", a.apiFinalizar))
 	mux.HandleFunc("GET /api/atividades/last-info", a.requireAPIRole("conferente,gerente,sysadmin", a.apiLastInfo))

@@ -763,6 +763,7 @@ Deseja DESCARTAR os dados e iniciar uma nova?
   const openConsulta = () => {
     state.lastScanned = null;
     saveState();
+    setConsultaMode("codigo");
     showScreen("consulta");
     let lojaNome = "";
     if (state.previousScreen === "scanning" && state.atividade) {
@@ -783,10 +784,45 @@ Deseja DESCARTAR os dados e iniciar uma nova?
       input.focus();
     }
     document.getElementById("consulta-result")?.classList.add("hidden");
+    document.getElementById("consulta-result-list")?.classList.add("hidden");
+    document.getElementById("consulta-result-list").innerHTML = "";
     document.getElementById("consulta-empty")?.classList.remove("hidden");
   };
   document.getElementById("btn-go-consulta")?.addEventListener("click", openConsulta);
   document.getElementById("btn-start-consulta")?.addEventListener("click", openConsulta);
+  // ── Consulta search mode toggle ─────────────────────────────────────
+  let consultaMode = "codigo";
+  function setConsultaMode(mode) {
+    consultaMode = mode;
+    const input = document.getElementById("consulta-input");
+    const btnCodigo = document.getElementById("btn-consulta-mode-codigo");
+    const btnDescricao = document.getElementById("btn-consulta-mode-descricao");
+    if (mode === "codigo") {
+      input.placeholder = "Escanear ou digitar EAN/DUN";
+      input.type = "tel";
+      input.inputMode = "none";
+      btnCodigo.className = "btn btn-sm btn-primary";
+      btnCodigo.style.cssText = "flex: 1; font-size: 0.75rem; padding: 0.35rem;";
+      btnDescricao.className = "btn btn-sm";
+      btnDescricao.style.cssText = "flex: 1; font-size: 0.75rem; padding: 0.35rem; background: #e2e8f0; color: #475569;";
+    } else {
+      input.placeholder = "Digitar descrição do produto";
+      input.type = "text";
+      input.inputMode = "text";
+      btnDescricao.className = "btn btn-sm btn-primary";
+      btnDescricao.style.cssText = "flex: 1; font-size: 0.75rem; padding: 0.35rem;";
+      btnCodigo.className = "btn btn-sm";
+      btnCodigo.style.cssText = "flex: 1; font-size: 0.75rem; padding: 0.35rem; background: #e2e8f0; color: #475569;";
+    }
+    document.getElementById("consulta-result")?.classList.add("hidden");
+    document.getElementById("consulta-result-list")?.classList.add("hidden");
+    document.getElementById("consulta-result-list").innerHTML = "";
+    input.value = "";
+    input.focus();
+  }
+  document.getElementById("btn-consulta-mode-codigo")?.addEventListener("click", () => setConsultaMode("codigo"));
+  document.getElementById("btn-consulta-mode-descricao")?.addEventListener("click", () => setConsultaMode("descricao"));
+
   document.getElementById("btn-consulta-back")?.addEventListener("click", () => {
     const backTo = state.previousScreen || (state.atividade ? "scanning" : "start");
     showScreen(backTo === "consulta" ? "start" : backTo);
@@ -819,6 +855,51 @@ Deseja DESCARTAR os dados e iniciar uma nova?
       return;
     }
     showLoader(true);
+    document.getElementById("consulta-result")?.classList.add("hidden");
+    document.getElementById("consulta-result-list")?.classList.add("hidden");
+    document.getElementById("consulta-result-list").innerHTML = "";
+    if (consultaMode === "descricao") {
+      const { ok, data } = await apiCall(`/api/produtos/consulta?q=${encodeURIComponent(code)}&empresa=${empresa}&seqlocal=${seqlocal}`, {}, () => showReauthModal(true));
+      showLoader(false);
+      if (ok && Array.isArray(data) && data.length > 0) {
+        playBeep("success");
+        document.getElementById("consulta-empty")?.classList.add("hidden");
+        const listEl = document.getElementById("consulta-result-list");
+        listEl.innerHTML = data.map((p) => {
+          const mdv = p.mdv != null ? Number(p.mdv).toFixed(2).replace(".", ",") : "—";
+          const preco = p.precoVenda ? `R$ ${Number(p.precoVenda).toFixed(2).replace(".", ",")}` : "N/A";
+          const ultEntrada = p.dtaUltEntrada ? formatDate(p.dtaUltEntrada) : "N/A";
+          const ultVenda = p.dtaUltVenda ? formatDate(p.dtaUltVenda) : "N/A";
+          const codigosHtml = p.codigos ? p.codigos.split("|").map((c) => `<span class="ean-badge">${sanitizeHtml(c)}</span>`).join(" ") : "";
+          return `<div class="card" style="margin-bottom: 0.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+              <div style="flex: 1;">
+                <div style="font-weight: 600; color: #4f46e5; font-size: 0.9rem;">${sanitizeHtml(p.desccompleta || "Sem descrição")}</div>
+                <div style="font-size: 0.7rem; color: #64748b; margin-top: 2px;">SEQ ${p.seqproduto} · ${sanitizeHtml(p.marca || "—")}</div>
+              </div>
+              <span style="background: #f1f5f9; color: #475569; padding: 2px 6px; border-radius: 4px; font-size: 0.625rem; font-weight: 700; white-space: nowrap;">${sanitizeHtml(lojaNome)}</span>
+            </div>
+            <div class="grid-details" style="margin-top: 0.5rem;">
+              <div class="detail-item"><span class="detail-label">ESTOQUE</span><span class="detail-value">${p.estoque}</span></div>
+              <div class="detail-item"><span class="detail-label">DIAS</span><span class="detail-value">${p.diasEstoque != null ? Number(p.diasEstoque).toFixed(1).replace(".", ",") : "—"}</span></div>
+              <div class="detail-item"><span class="detail-label">MDV</span><span class="detail-value">${mdv}</span></div>
+              <div class="detail-item"><span class="detail-label">PREÇO</span><span class="detail-value">${preco}</span></div>
+            </div>
+            <div class="mt-2 text-xs text-slate-500" style="border-top: 1px solid #e2e8f0; padding-top: 0.5rem;">
+              <p>Última Entrada: <span style="font-weight: 600;">${ultEntrada}</span></p>
+              <p>Última Venda: <span style="font-weight: 600;">${ultVenda}</span></p>
+              ${codigosHtml ? `<p style="margin-top: 0.35rem; word-break: break-all;"><strong>CÓDIGOS:</strong> ${codigosHtml}</p>` : ""}
+            </div>
+          </div>`;
+        }).join("");
+        listEl.classList.remove("hidden");
+      } else {
+        playBeep("error");
+        alert("Nenhum produto encontrado");
+      }
+      input.select();
+      return;
+    }
     const { ok, data } = await apiCall(`/api/produtos/consulta/${code}?empresa=${empresa}&seqlocal=${seqlocal}`, {}, () => showReauthModal(true));
     showLoader(false);
     if (ok) {
@@ -837,9 +918,9 @@ Deseja DESCARTAR os dados e iniciar uma nova?
       setVal("consulta-seq", data.seqproduto);
       setVal("consulta-marca", data.marca);
       setVal("consulta-estoque", data.estoque);
-      setVal("consulta-dias", data.diasEstoque);
-      setVal("consulta-mdv", data.mdv.toFixed(2).replace(".", ","));
-      setVal("consulta-preco", data.precoVenda ? `R$ ${data.precoVenda.toFixed(2).replace(".", ",")}` : "N/A");
+      setVal("consulta-dias", data.diasEstoque != null ? Number(data.diasEstoque).toFixed(1).replace(".", ",") : "—");
+      setVal("consulta-mdv", data.mdv != null ? Number(data.mdv).toFixed(2).replace(".", ",") : "—");
+      setVal("consulta-preco", data.precoVenda ? `R$ ${Number(data.precoVenda).toFixed(2).replace(".", ",")}` : "N/A");
       setVal("consulta-entrada", data.dtaUltEntrada ? formatDate(data.dtaUltEntrada) : "N/A");
       setVal("consulta-venda", data.dtaUltVenda ? formatDate(data.dtaUltVenda) : "N/A");
       const codigosEl = document.getElementById("consulta-codigos");

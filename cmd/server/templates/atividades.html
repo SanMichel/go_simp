@@ -169,7 +169,12 @@
                     </div>
                 </div>
 
-                <form id="form-consulta" class="flex gap-2" style="margin-top: 0.75rem; margin-bottom: 0.75rem;">
+                <div class="flex gap-1" style="margin-top: 0.75rem; margin-bottom: 0.5rem;">
+                    <button type="button" id="btn-consulta-mode-codigo" class="btn btn-sm btn-primary" style="flex: 1; font-size: 0.75rem; padding: 0.35rem;">Código</button>
+                    <button type="button" id="btn-consulta-mode-descricao" class="btn btn-sm" style="flex: 1; font-size: 0.75rem; padding: 0.35rem; background: #e2e8f0; color: #475569;">Descrição</button>
+                </div>
+
+                <form id="form-consulta" class="flex gap-2" style="margin-bottom: 0.75rem;">
                     <div class="input-group" style="flex: 1;">
                         <input type="tel" id="consulta-input" class="input input-with-icon-left" placeholder="Escanear ou digitar EAN/DUN"
                             autocomplete="off" inputmode="none">
@@ -220,7 +225,10 @@
                         </div>
                     </div>
                 </div>
-                
+
+                <div id="consulta-result-list" class="hidden" style="flex: 1; overflow-y: auto;">
+                </div>
+
                 <div id="consulta-empty" class="text-center py-8 text-slate-400">
                     <p>Escaneie um produto para ver os detalhes</p>
                 </div>

@@ -620,7 +620,7 @@ function renderModalItems() {
   if (currentModalItems.length === 0) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = 7;
+    td.colSpan = 8;
     const div = document.createElement("div");
     div.className = "empty";
     div.textContent = "Nenhum item verificado.";
@@ -697,6 +697,18 @@ function renderModalItems() {
     ddvTd.style.fontWeight = "600";
     ddvTd.textContent = ddv;
     tr.appendChild(ddvTd);
+    const recTd = document.createElement("td");
+    recTd.style.textAlign = "center";
+    recTd.style.fontWeight = "600";
+    recTd.style.fontSize = "13px";
+    const recVal = item.reincidencia || 0;
+    recTd.textContent = String(recVal);
+    if (recVal > 0) {
+      recTd.style.color = "#dc2626";
+    } else {
+      recTd.style.color = "#94a3b8";
+    }
+    tr.appendChild(recTd);
     tbody.appendChild(tr);
   }
 }
@@ -721,7 +733,7 @@ function handleModalSort(col) {
     } else if (col === "lido") {
       valA = `${a.rua || ""}/${a.predio || ""}`;
       valB = `${b.rua || ""}/${b.predio || ""}`;
-    } else if (col === "estoque" || col === "mdv" || col === "ddv") {
+    } else if (col === "estoque" || col === "mdv" || col === "ddv" || col === "reincidencia") {
       const itemA = a;
       const itemB = b;
       valA = itemA[col] ?? 0;
@@ -746,7 +758,8 @@ function updateModalSortIndicators() {
     "lido",
     "estoque",
     "mdv",
-    "ddv"
+    "ddv",
+    "reincidencia"
   ];
   for (const col of allCols) {
     const el = document.getElementById(`modal-sort-${col}`);
