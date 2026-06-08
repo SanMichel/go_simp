@@ -1,9 +1,17 @@
 // src/client/shared/api.ts
 async function apiCall(endpoint, options = {}, onUnauthorized) {
   try {
+    const method = (options.method || "GET").toUpperCase();
+    const headers = { "Content-Type": "application/json", ...options.headers };
+    if (method === "POST" || method === "PATCH" || method === "DELETE") {
+      const csrfCookie = document.cookie.split("; ").find((c) => c.startsWith("csrf_token="));
+      if (csrfCookie) {
+        headers["X-CSRF-Token"] = csrfCookie.split("=")[1];
+      }
+    }
     const res = await fetch(endpoint, {
       ...options,
-      headers: { "Content-Type": "application/json", ...options.headers },
+      headers,
       credentials: "include"
     });
     if (res.status === 401) {

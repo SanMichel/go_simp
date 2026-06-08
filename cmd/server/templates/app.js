@@ -363,8 +363,8 @@ async function finalizeActivity() {
   showLoader(true);
   const predios = state.atividade.predios || [state.atividade.predio];
   const payload = {
-    empresa: state.atividade.empresa,
-    seqlocal: state.atividade.seqlocal,
+    empresa: Number(state.atividade.empresa),
+    seqlocal: Number(state.atividade.seqlocal),
     rua: state.atividade.rua,
     predio: predios,
     readProducts: state.scannedProducts,

@@ -400,10 +400,10 @@ func (a *App) apiProdutosLocal(w http.ResponseWriter, r *http.Request, u *User) 
 	}
 	defer rows.Close()
 	type row struct {
-		SEQPRODUTO int    `json:"SEQPRODUTO"`
-		NRORUA     string `json:"NRORUA"`
-		NROPREDIO  string `json:"NROPREDIO"`
-		ESTOQUE    int    `json:"ESTOQUE"`
+		SEQPRODUTO int    `json:"seqproduto"`
+		NRORUA     string `json:"nrorua"`
+		NROPREDIO  string `json:"nropredio"`
+		ESTOQUE    int    `json:"estoque"`
 	}
 	var out []row
 	for rows.Next() {
@@ -470,20 +470,25 @@ func (a *App) apiFinalizar(w http.ResponseWriter, r *http.Request, u *User) {
 		Reposicao    bool
 		Predio       string
 		Desccompleta string
+		EAN          string
 	}{}
 	seqSet := map[int]bool{}
+	expectedSeqs := map[int]bool{}
 	for _, p := range req.ReadProducts {
 		read[p.SeqProduto] = struct {
 			Status       string
 			Reposicao    bool
 			Predio       string
 			Desccompleta string
-		}{p.Status, p.Reposicao, p.Predio, p.Desccompleta}
+			EAN          string
+		}{p.Status, p.Reposicao, p.Predio, p.Desccompleta, p.EAN}
 		seqSet[p.SeqProduto] = true
 	}
 	for _, p := range req.ExpectedProducts {
+		expectedSeqs[p.SeqProduto] = true
 		seqSet[p.SeqProduto] = true
 	}
+	var divergences, ruptures, replenishments []map[string]any
 	for seq := range seqSet {
 		status := "RUPTURA"
 		reposicao := false
@@ -494,6 +499,22 @@ func (a *App) apiFinalizar(w http.ResponseWriter, r *http.Request, u *User) {
 			reposicao = rp.Reposicao
 			ruaLida = sql.NullString{String: req.Rua, Valid: true}
 			predioLido = sql.NullString{String: firstNonEmpty(rp.Predio, req.Predio[0]), Valid: true}
+			if rp.Status == "DIVERGENTE" || rp.Status == "ERRO" {
+				divergences = append(divergences, map[string]any{
+					"seqproduto":   seq,
+					"ean":          rp.EAN,
+					"desccompleta": rp.Desccompleta,
+				})
+			}
+			if rp.Reposicao {
+				replenishments = append(replenishments, map[string]any{
+					"seqproduto":   seq,
+					"ean":          rp.EAN,
+					"desccompleta": rp.Desccompleta,
+				})
+			}
+		} else if expectedSeqs[seq] {
+			ruptures = append(ruptures, map[string]any{"seqproduto": seq})
 		}
 		desc := sql.NullString{}
 		if rp, ok := read[seq]; ok && rp.Desccompleta != "" {
@@ -510,5 +531,5 @@ func (a *App) apiFinalizar(w http.ResponseWriter, r *http.Request, u *User) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao finalizar atividade"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "atividadeId": activityID, "dataFim": time.Now()})
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "atividadeId": activityID, "dataFim": time.Now(), "divergences": divergences, "ruptures": ruptures, "replenishments": replenishments})
 }

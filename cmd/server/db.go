@@ -250,6 +250,7 @@ func (a *App) listActivities(ctx context.Context, f ActivityFilters, limit int) 
 		order = "ASC"
 	}
 	args = append(args, limit)
+	innerSort := strings.NewReplacer("a.", "a2.", "u.", "u2.", "e.", "e2.").Replace(sort)
 	query := fmt.Sprintf(`
 		SELECT a.id, a.empresa, COALESCE(a.seqlocal,0), COALESCE(a.usuario_id,0), COALESCE(u.username,''), a.data_fim, a.impresso, COALESCE(e.rua,''), COALESCE(e.predio,'')
 		FROM atividades a
@@ -263,7 +264,7 @@ func (a *App) listActivities(ctx context.Context, f ActivityFilters, limit int) 
 			ORDER BY %s %s
 			LIMIT $%d
 		)
-		ORDER BY %s %s`, strings.Join(where, " AND "), sort, order, len(args), sort, order)
+		ORDER BY %s %s`, strings.Join(where, " AND "), innerSort, order, len(args), sort, order)
 	rows, err := a.pg.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -328,7 +329,8 @@ func (a *App) activityDetailsData(ctx context.Context, id int) (Activity, []Prod
 	}
 	rows, err := a.pg.QueryContext(ctx, `SELECT id, atividade_id, seqproduto, empresa, rua_lida, predio_lido, rua_esperada, predio_esperado, status, reposicao, estoque, data_entrada, desccompleta FROM produto_verificacao WHERE atividade_id=$1 ORDER BY id`, id)
 	if err != nil {
-		return Activity{}, nil, err
+		log.Printf("warn: activityDetailsData query for activity %d: %v", id, err)
+		return acts[0], nil, nil
 	}
 	defer rows.Close()
 	var items []ProductVerification
