@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -41,7 +41,7 @@ func (a *App) loginPost(w http.ResponseWriter, r *http.Request) {
 	}
 	token, err := a.makeToken(u.ID)
 	if err != nil {
-		http.Error(w, "session error", http.StatusInternalServerError)
+		a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro ao criar sessão", HTTPStatus: http.StatusInternalServerError})
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: "token", Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: int(a.cfg.SessionTTL.Seconds()), Secure: true})
@@ -83,8 +83,7 @@ func (a *App) dashboardPage(w http.ResponseWriter, r *http.Request) {
 func (a *App) dashboardTable(w http.ResponseWriter, r *http.Request) {
 	activities, err := a.listActivities(r.Context(), parseFilters(r), 50)
 	if err != nil {
-		log.Printf("error: %v", err)
-		http.Error(w, "Erro interno do servidor", http.StatusInternalServerError)
+		a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro ao carregar atividades", HTTPStatus: http.StatusInternalServerError, Err: err})
 		return
 	}
 	options, _ := a.listFilterOptions(r.Context())
@@ -95,7 +94,7 @@ func (a *App) activityDetails(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.Atoi(r.PathValue("id"))
 	act, items, err := a.activityDetailsData(r.Context(), id)
 	if err != nil {
-		http.NotFound(w, r)
+		a.handleError(w, r, &AppError{Code: ErrCodeNotFound, Message: "Atividade não encontrada", HTTPStatus: http.StatusNotFound, Err: err})
 		return
 	}
 	a.render(w, "activity_modal", map[string]any{"Activity": act, "Items": items})
@@ -114,7 +113,7 @@ func (a *App) printBulk(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(ids) == 0 {
-		http.Error(w, "IDs inválidos", http.StatusBadRequest)
+		a.handleError(w, r, &AppError{Code: ErrCodeBadRequest, Message: "IDs inválidos", HTTPStatus: http.StatusBadRequest})
 		return
 	}
 	a.printActivities(w, r, ids)
@@ -134,7 +133,10 @@ func (a *App) printActivities(w http.ResponseWriter, r *http.Request, ids []int)
 	}
 	for _, id := range ids {
 		if _, err := a.pg.ExecContext(r.Context(), `UPDATE atividades SET impresso=true WHERE id=$1`, id); err != nil {
-			log.Printf("warn: failed to set impresso for activity %d: %v", id, err)
+			slog.WarnContext(r.Context(), "failed to set impresso for activity",
+				"activity_id", id,
+				"error", err,
+			)
 		}
 	}
 	a.render(w, "print", map[string]any{"Bundles": bundles})
@@ -144,8 +146,7 @@ func (a *App) adminPage(w http.ResponseWriter, r *http.Request) {
 	u := r.Context().Value(ctxUser).(*User)
 	users, err := a.listUsers(r.Context())
 	if err != nil {
-		log.Printf("error: %v", err)
-		http.Error(w, "Erro interno do servidor", http.StatusInternalServerError)
+		a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro ao carregar usuários", HTTPStatus: http.StatusInternalServerError, Err: err})
 		return
 	}
 	a.render(w, "admin", map[string]any{"User": u, "Users": users})
@@ -158,27 +159,25 @@ func (a *App) adminUsersSection(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) adminCreateUser(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		log.Printf("error: %v", err)
-		http.Error(w, "Erro interno do servidor", http.StatusBadRequest)
+		a.handleError(w, r, &AppError{Code: ErrCodeBadRequest, Message: "Erro ao processar formulário", HTTPStatus: http.StatusBadRequest, Err: err})
 		return
 	}
 	username := strings.TrimSpace(r.FormValue("username"))
 	password := r.FormValue("password")
 	role := r.FormValue("role")
 	if username == "" || len(password) < 8 || !validRole(role) {
-		users, _ := a.listUsers(r.Context())
-		a.render(w, "users_section", map[string]any{"Users": users, "Message": "Dados inválidos.", "Error": true})
+		a.handleError(w, r, &AppError{Code: ErrCodeValidation, Message: "Dados inválidos.", HTTPStatus: http.StatusBadRequest})
 		return
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro interno do servidor", HTTPStatus: http.StatusInternalServerError})
 		return
 	}
 	_, err = a.pg.ExecContext(r.Context(), `INSERT INTO users (username, password, role) VALUES ($1,$2,$3)`, username, string(hash), role)
 	users, _ := a.listUsers(r.Context())
 	if err != nil {
-		log.Printf("error creating user: %v", err)
+		slog.ErrorContext(r.Context(), "error creating user", "error", err)
 		a.render(w, "users_section", map[string]any{"Users": users, "Message": "Erro interno do servidor", "Error": true})
 		return
 	}
@@ -189,7 +188,7 @@ func (a *App) adminEditUserRow(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.Atoi(r.PathValue("id"))
 	u, err := a.findUserByID(r.Context(), id)
 	if err != nil {
-		http.NotFound(w, r)
+		a.handleError(w, r, &AppError{Code: ErrCodeNotFound, Message: "Usuário não encontrado", HTTPStatus: http.StatusNotFound, Err: err})
 		return
 	}
 	a.render(w, "user_edit_row", map[string]any{"RowUser": u})
@@ -199,7 +198,7 @@ func (a *App) adminUserRow(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.Atoi(r.PathValue("id"))
 	u, err := a.findUserByID(r.Context(), id)
 	if err != nil {
-		http.NotFound(w, r)
+		a.handleError(w, r, &AppError{Code: ErrCodeNotFound, Message: "Usuário não encontrado", HTTPStatus: http.StatusNotFound, Err: err})
 		return
 	}
 	a.render(w, "user_row", map[string]any{"RowUser": u})
@@ -209,41 +208,40 @@ func (a *App) adminUpdateUser(w http.ResponseWriter, r *http.Request) {
 	currentUser := r.Context().Value(ctxUser).(*User)
 	id, _ := strconv.Atoi(r.PathValue("id"))
 	if id == currentUser.ID {
-		http.Error(w, "Não é possível editar o próprio usuário", http.StatusBadRequest)
+		a.handleError(w, r, &AppError{Code: ErrCodeBadRequest, Message: "Não é possível editar o próprio usuário", HTTPStatus: http.StatusBadRequest})
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		log.Printf("error: %v", err)
-		http.Error(w, "Erro interno do servidor", http.StatusBadRequest)
+		a.handleError(w, r, &AppError{Code: ErrCodeBadRequest, Message: "Erro ao processar formulário", HTTPStatus: http.StatusBadRequest, Err: err})
 		return
 	}
 	role := r.FormValue("role")
 	password := r.FormValue("password")
 	if !validRole(role) {
-		http.Error(w, "role inválido", http.StatusBadRequest)
+		a.handleError(w, r, &AppError{Code: ErrCodeBadRequest, Message: "Role inválido", HTTPStatus: http.StatusBadRequest})
 		return
 	}
 	target, err := a.findUserByID(r.Context(), id)
 	if err != nil {
-		http.NotFound(w, r)
+		a.handleError(w, r, &AppError{Code: ErrCodeNotFound, Message: "Usuário não encontrado", HTTPStatus: http.StatusNotFound, Err: err})
 		return
 	}
 	if target.Role == "sysadmin" && currentUser.Role != "sysadmin" {
-		http.Error(w, "Sem permissão", http.StatusForbidden)
+		a.handleError(w, r, &AppError{Code: ErrCodeForbidden, Message: "Sem permissão", HTTPStatus: http.StatusForbidden})
 		return
 	}
 	if password != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
+			a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro interno do servidor", HTTPStatus: http.StatusInternalServerError})
 			return
 		}
 		if _, err := a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, password=$2, last_token_at=now() WHERE id=$3`, role, string(hash), id); err != nil {
-			log.Printf("error updating user %d: %v", id, err)
+			slog.ErrorContext(r.Context(), "error updating user", "user_id", id, "error", err)
 		}
 	} else {
 		if _, err := a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, last_token_at=now() WHERE id=$2`, role, id); err != nil {
-			log.Printf("error updating user %d: %v", id, err)
+			slog.ErrorContext(r.Context(), "error updating user", "user_id", id, "error", err)
 		}
 	}
 	u, _ := a.findUserByID(r.Context(), id)
@@ -252,7 +250,7 @@ func (a *App) adminUpdateUser(w http.ResponseWriter, r *http.Request) {
 func (a *App) apiMe(w http.ResponseWriter, r *http.Request) {
 	u, err := a.currentUser(r)
 	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Não autenticado"})
+		a.handleError(w, r, &AppError{Code: ErrCodeUnauthorized, Message: "Não autenticado", HTTPStatus: http.StatusUnauthorized})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"user": map[string]any{"id": u.ID, "username": u.Username, "role": u.Role}})
@@ -260,7 +258,7 @@ func (a *App) apiMe(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
 	if !a.loginLimiter.allow(r.RemoteAddr) {
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Muitas tentativas. Aguarde 1 minuto."})
+		a.handleError(w, r, &AppError{Code: ErrCodeRateLimited, Message: "Muitas tentativas. Aguarde 1 minuto.", HTTPStatus: http.StatusTooManyRequests})
 		return
 	}
 	var body struct {
@@ -268,17 +266,17 @@ func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSON inválido"})
+		a.handleError(w, r, &AppError{Code: ErrCodeBadRequest, Message: "JSON inválido", HTTPStatus: http.StatusBadRequest})
 		return
 	}
 	u, err := a.findUserByUsername(r.Context(), body.Username)
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(body.Password)) != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Credenciais inválidas"})
+		a.handleError(w, r, &AppError{Code: ErrCodeUnauthorized, Message: "Credenciais inválidas", HTTPStatus: http.StatusUnauthorized})
 		return
 	}
 	token, err := a.makeToken(u.ID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao criar sessão"})
+		a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro ao criar sessão", HTTPStatus: http.StatusInternalServerError, Err: err})
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: "token", Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: int(a.cfg.SessionTTL.Seconds()), Secure: true})
@@ -302,7 +300,7 @@ func (a *App) apiEmpresas(w http.ResponseWriter, r *http.Request, u *User) {
 	defer cancel()
 	rows, err := a.ora.QueryContext(ctx, `SELECT me.NROEMPRESA, me.NOMEREDUZIDO FROM CONSINCO.MAX_EMPRESA me WHERE me.STATUS = 'A' ORDER BY me.NROEMPRESA`)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao buscar empresas"})
+		a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro ao buscar empresas", HTTPStatus: http.StatusInternalServerError, Err: err})
 		return
 	}
 	defer rows.Close()
@@ -322,7 +320,7 @@ func (a *App) apiLocais(w http.ResponseWriter, r *http.Request, u *User) {
 	empresa, _ := strconv.Atoi(r.URL.Query().Get("empresa"))
 	rows, err := a.ora.QueryContext(ctx, `SELECT ml.SEQLOCAL, ml.NROEMPRESA, ml.LOCAL FROM CONSINCO.MRL_LOCAL ml WHERE ml.STATUS = 'A' AND ml.NROEMPRESA = :1 ORDER BY ml.SEQLOCAL`, empresa)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao buscar locais"})
+		a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro ao buscar locais", HTTPStatus: http.StatusInternalServerError, Err: err})
 		return
 	}
 	defer rows.Close()
@@ -344,7 +342,7 @@ func (a *App) apiProdutoEAN(w http.ResponseWriter, r *http.Request, u *User) {
 	seqlocal, _ := strconv.Atoi(r.URL.Query().Get("seqlocal"))
 	p, err := a.findAddressByCode(ctx, codigo, empresa, seqlocal)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Produto não encontrado"})
+		a.handleError(w, r, &AppError{Code: ErrCodeNotFound, Message: "Produto não encontrado", HTTPStatus: http.StatusNotFound, Err: err})
 		return
 	}
 	writeJSON(w, http.StatusOK, mapOracleProduct(p))

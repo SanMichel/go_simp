@@ -119,11 +119,11 @@ func (a *App) requireAPIRole(roles string, next func(http.ResponseWriter, *http.
 	return func(w http.ResponseWriter, r *http.Request) {
 		u, err := a.currentUser(r)
 		if err != nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Não autorizado"})
+			a.handleError(w, r, &AppError{Code: ErrCodeUnauthorized, Message: "Não autorizado", HTTPStatus: http.StatusUnauthorized})
 			return
 		}
 		if len(allowed) > 0 && !allowed[u.Role] {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "Sem permissão"})
+			a.handleError(w, r, &AppError{Code: ErrCodeForbidden, Message: "Sem permissão", HTTPStatus: http.StatusForbidden})
 			return
 		}
 		next(w, r, u)
@@ -161,19 +161,19 @@ func (a *App) csrfMiddleware(next http.Handler) http.Handler {
 				origin := r.Header.Get("Origin")
 				if origin != "" {
 					if !strings.Contains(origin, "://"+r.Host) {
-						http.Error(w, "403 Forbidden", http.StatusForbidden)
+						a.handleError(w, r, &AppError{Code: ErrCodeForbidden, Message: "Acesso negado", HTTPStatus: http.StatusForbidden})
 						return
 					}
 				}
 				if strings.HasPrefix(r.URL.Path, "/api/") {
 					cookieCSRF, err := r.Cookie("csrf_token")
 					if err != nil || cookieCSRF.Value == "" {
-						writeJSON(w, http.StatusForbidden, map[string]string{"error": "CSRF token ausente"})
+						a.handleError(w, r, &AppError{Code: ErrCodeForbidden, Message: "CSRF token ausente", HTTPStatus: http.StatusForbidden})
 						return
 					}
 					headerCSRF := r.Header.Get("X-CSRF-Token")
 					if headerCSRF == "" || !hmac.Equal([]byte(cookieCSRF.Value), []byte(headerCSRF)) {
-						writeJSON(w, http.StatusForbidden, map[string]string{"error": "CSRF token inválido"})
+						a.handleError(w, r, &AppError{Code: ErrCodeForbidden, Message: "CSRF token inválido", HTTPStatus: http.StatusForbidden})
 						return
 					}
 				}
