@@ -9,13 +9,13 @@ Requirements for v1.1 Simplify & Stabilize milestone.
 
 ### Error Handling
 
-- [ ] **ERR-01**: App defines a custom `AppError` type with Code, Message, HTTPStatus, and wrapped Err fields
-- [ ] **ERR-02**: Centralized `handleError()` dispatches to JSON or HTML error responses based on request type (HTMX vs API)
-- [ ] **ERR-03**: All existing handlers return errors via the centralized handler instead of inline formatting
-- [ ] **ERR-04**: Input validation is standardized via a reusable `Validator` type
-- [ ] **ERR-05**: Error logging includes request ID, stack trace, and structured fields
-- [ ] **ERR-06**: Panic recovery middleware catches panics before server crash
-- [ ] **ERR-07**: `writeJSON` writes header after successful encode (not before), preventing silent 200-on-failure
+- [x] **ERR-01**: App defines a custom `AppError` type with Code, Message, HTTPStatus, and wrapped Err fields
+- [x] **ERR-02**: Centralized `handleError()` dispatches to JSON or HTML error responses based on request type (HTMX vs API)
+- [x] **ERR-03**: All existing handlers return errors via the centralized handler instead of inline formatting
+- [x] **ERR-04**: Input validation is standardized via a reusable `Validator` type
+- [x] **ERR-05**: Error logging includes request ID, stack trace, and structured fields
+- [x] **ERR-06**: Panic recovery middleware catches panics before server crash
+- [x] **ERR-07**: `writeJSON` writes header after successful encode (not before), preventing silent 200-on-failure
 
 ### Testing
 
@@ -33,12 +33,12 @@ Requirements for v1.1 Simplify & Stabilize milestone.
 - [ ] **HAND-03**: Business logic extracted into service functions that never touch `http.Request`/`http.ResponseWriter`
 - [ ] **HAND-04**: Handlers become thin adapters (10-20 lines), delegating to service functions
 - [ ] **HAND-05**: No behavior changes during decomposition — test coverage proves equivalence
-- [ ] **HAND-06**: Code organized into domain-grouped files (activity_handlers.go, dashboard_handlers.go, admin_handlers.go)
+- [x] **HAND-06**: Code organized into domain-grouped files (activity_handlers.go, dashboard_handlers.go, admin_handlers.go)
 
 ### ES5 Compatibility
 
 - [ ] **ES5-01**: Scanning workflow JS files are rewritten to ES5 (no `const`/`let`, arrow functions, `async`/`await`, `fetch`, template literals)
-- [ ] **ES5-02**: Inlined DOMPurify is replaced with existing `escHtml()` for ES5-safe sanitization
+- [x] **ES5-02**: Inlined DOMPurify is replaced with existing `escHtml()` for ES5-safe sanitization
 - [ ] **ES5-03**: HTMX version is verified compatible with warehouse browsers (fallback to 1.9.x if 2.x fails)
 - [ ] **ES5-04**: Page weight/rendering optimized for low-end devices
 
@@ -74,13 +74,13 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ERR-01 | Phase 5 | Pending |
-| ERR-02 | Phase 5 | Pending |
-| ERR-03 | Phase 5 | Pending |
-| ERR-04 | Phase 5 | Pending |
-| ERR-05 | Phase 5 | Pending |
-| ERR-06 | Phase 5 | Pending |
-| ERR-07 | Phase 5 | Pending |
+| ERR-01 | Phase 5 | Complete |
+| ERR-02 | Phase 5 | Complete |
+| ERR-03 | Phase 5 | Complete |
+| ERR-04 | Phase 5 | Complete |
+| ERR-05 | Phase 5 | Complete |
+| ERR-06 | Phase 5 | Complete |
+| ERR-07 | Phase 5 | Complete |
 | TEST-01 | Phase 6 | Pending |
 | TEST-02 | Phase 6 | Pending |
 | TEST-03 | Phase 6 | Pending |
@@ -92,9 +92,9 @@ Deferred to future release. Tracked but not in current roadmap.
 | HAND-03 | Phase 7 | Pending |
 | HAND-04 | Phase 7 | Pending |
 | HAND-05 | Phase 7 | Pending |
-| HAND-06 | Phase 5 | Pending |
+| HAND-06 | Phase 5 | Complete |
 | ES5-01 | Phase 8 | Pending |
-| ES5-02 | Phase 5 | Pending |
+| ES5-02 | Phase 5 | Complete |
 | ES5-03 | Phase 8 | Pending |
 | ES5-04 | Phase 8 | Pending |
 
@@ -105,4 +105,4 @@ Deferred to future release. Tracked but not in current roadmap.
 
 ---
 *Requirements defined: 2026-06-08*
-*Last updated: 2026-06-08 after initial definition*
+*Last updated: 2026-06-09 after Phase 5 completion*

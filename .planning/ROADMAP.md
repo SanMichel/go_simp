@@ -11,7 +11,7 @@ Warehouse activity scanning and logistics dashboard. Existing codebase migrated 
 - [x] **Phase 3: Dashboard** — Operational metrics and monitoring dashboard
 - [x] **Phase 4: Admin** — User management, RBAC administration
 
-- [ ] **Phase 5: Error Handling Foundation** — Custom AppError, centralized error dispatch, validation, file reorg
+- [x] **Phase 5: Error Handling Foundation** — Custom AppError, centralized error dispatch, validation, file reorg
 - [ ] **Phase 6: Testing Infrastructure** — Table-driven handler tests, auth/db/error tests, 70%+ coverage
 - [ ] **Phase 7: Handler Decomposition** — Decompose overgrown handlers into thin adapters + service layer
 - [ ] **Phase 8: ES5 Compatibility** — ES5 JS rewrite, HTMX compat verification, page weight optimization
@@ -81,16 +81,16 @@ Warehouse activity scanning and logistics dashboard. Existing codebase migrated 
 **Plans**: 4 plans in 3 wavesPlans:
 **Wave 1**
 
-- [ ] 05-01-PLAN.md — Foundation: AppError, handleError, Validator, writeJSON fix, slog, recovery middleware
+- [x] 05-01-PLAN.md — Foundation: AppError, handleError, Validator, writeJSON fix, slog, recovery middleware
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 05-02-PLAN.md — handlers.go + auth.go error path migration
-- [ ] 05-03-PLAN.md — api_handlers.go error path migration
+- [x] 05-02-PLAN.md — handlers.go + auth.go error path migration
+- [x] 05-03-PLAN.md — api_handlers.go error path migration
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 05-04-PLAN.md — File reorganization (HAND-06) + ES5-02 (DOMPurify→escHtml)
+- [x] 05-04-PLAN.md — File reorganization (HAND-06) + ES5-02 (DOMPurify→escHtml)
 
 ### Phase 6: Testing Infrastructure
 
@@ -144,7 +144,7 @@ Warehouse activity scanning and logistics dashboard. Existing codebase migrated 
 | 2. Activity Scanning | — | Complete | 2026-06-08 |
 | 3. Dashboard | — | Complete | 2026-06-08 |
 | 4. Admin | — | Complete | 2026-06-08 |
-| 5. Error Handling Foundation | 0/4 | Planning | - |
+| 5. Error Handling Foundation | 4/4 | Complete | 2026-06-09 |
 | 6. Testing Infrastructure | 0/0 | Planning | - |
 | 7. Handler Decomposition | 0/0 | Planning | - |
 | 8. ES5 Compatibility | 0/0 | Planning | - |
