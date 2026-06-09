@@ -31,10 +31,16 @@ The application is modularized into multiple files within the single `main` pack
 
 - `cmd/server/main.go`: Application entrypoint, route configuration, and `go:embed` filesystem initialization for templates.
 - `cmd/server/models.go`: Core data structures (`User`, `Activity`, `ProductVerification`, etc.) and the main `App` and `Config` struct definitions.
-- `cmd/server/handlers.go`: HTTP route handlers for pages and API endpoints (e.g., `/login`, `/dashboard`, `/api/*`).
+- `cmd/server/handlers.go`: Page/entrypoint HTTP handlers (home, login, logout, healthCheck, atividadesPage, apiMe, apiLogin, apiLogout) — ~120 lines after domain split.
+- `cmd/server/activity_handlers.go`: Scanning/activity API handlers (apiEmpresas, apiFinalizar, etc.).
+- `cmd/server/dashboard_handlers.go`: Dashboard page and partial handlers.
+- `cmd/server/admin_handlers.go`: Admin CRUD handlers.
+- `cmd/server/api_handlers.go`: Admin + dashboard API handlers (user CRUD, dashboard data, bulk print).
+- `cmd/server/errors.go`: `AppError` type, error code constants, `handleError()` dispatcher, `requestIDMiddleware`, `getRequestID()`.
+- `cmd/server/validation.go`: `Validator` type with chainable methods (Required, MinLength, ValidRole, Positive).
 - `cmd/server/auth.go`: Authentication logic, session cookie management, and role-based access control middleware.
 - `cmd/server/db.go`: Database connectivity, auto-migrations, seeders, and specialized data queries (Postgres and Oracle).
-- `cmd/server/utils.go`: Utility functions such as environment configuration parsing, logging middleware, and JSON responses.
+- `cmd/server/utils.go`: Utility functions — environment config, `writeJSON` (buffer-first), `recoveryMiddleware`, slog-based log middleware.
 - `cmd/server/main_test.go`: All test cases.
 - `cmd/server/templates/`: Directory containing all HTML templates. They are compiled directly into the binary using `go:embed`.
 - `tmp/`: A reference copy of the old application architecture. Do not modify.
