@@ -145,3 +145,22 @@ type finalizeReq struct {
 		SeqProduto int `json:"seqproduto"`
 	} `json:"expectedProducts"`
 }
+
+type FinalizarResult struct {
+	ActivityID     int
+	DataFim        time.Time
+	Divergences    []map[string]any
+	Ruptures       []map[string]any
+	Replenishments []map[string]any
+}
+
+type FlatBundle struct {
+	ID       int                      `json:"id"`
+	Empresa  string                   `json:"empresa"`
+	Username string                   `json:"username"`
+	DataFim  *time.Time               `json:"dataFim"`
+	Rua      string                   `json:"rua"`
+	Predio   string                   `json:"predio"`
+	Impresso bool                     `json:"impresso"`
+	Items    []APIProductVerification `json:"items"`
+}
