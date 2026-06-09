@@ -2310,6 +2310,115 @@ func TestAPIDashboardBulkDetails(t *testing.T) {
 	}
 }
 
+// ---- Service Function Tests ----
+
+// --- updateUserAdmin tests ---
+
+func TestUpdateUserAdmin_Success(t *testing.T) {
+	app := testApp(t)
+	ctx := context.Background()
+	currentUser := testUser(t, app, "test_updusr_success_admin", "sysadmin", "pass1234")
+	target := testUser(t, app, "test_updusr_success_tgt", "conferente", "pass1234")
+	u, err := app.updateUserAdmin(ctx, currentUser.ID, target.ID, "gerente", "")
+	if err != nil {
+		t.Fatalf("updateUserAdmin: %v", err)
+	}
+	if u.Role != "gerente" {
+		t.Errorf("role = %q, want gerente", u.Role)
+	}
+	// Verify DB state
+	var role string
+	app.pg.QueryRowContext(ctx, `SELECT role FROM users WHERE id=$1`, target.ID).Scan(&role)
+	if role != "gerente" {
+		t.Errorf("DB role = %q, want gerente", role)
+	}
+}
+
+func TestUpdateUserAdmin_SelfEditBlocked(t *testing.T) {
+	app := testApp(t)
+	ctx := context.Background()
+	user := testUser(t, app, "test_updusr_self", "sysadmin", "pass1234")
+	_, err := app.updateUserAdmin(ctx, user.ID, user.ID, "gerente", "")
+	if err == nil {
+		t.Fatal("expected error for self-edit")
+	}
+	var appErr *AppError
+	if !errors.As(err, &appErr) || appErr.Code != ErrCodeBadRequest {
+		t.Errorf("expected ErrCodeBadRequest, got %v", err)
+	}
+}
+
+func TestUpdateUserAdmin_SysadminProtection(t *testing.T) {
+	app := testApp(t)
+	ctx := context.Background()
+	currentUser := testUser(t, app, "test_updusr_prot_cur", "gerente", "pass1234")
+	target := testUser(t, app, "test_updusr_prot_tgt", "sysadmin", "pass1234")
+	_, err := app.updateUserAdmin(ctx, currentUser.ID, target.ID, "conferente", "")
+	if err == nil {
+		t.Fatal("expected error for non-sysadmin editing sysadmin")
+	}
+	var appErr *AppError
+	if !errors.As(err, &appErr) || appErr.Code != ErrCodeForbidden {
+		t.Errorf("expected ErrCodeForbidden, got %v", err)
+	}
+}
+
+func TestUpdateUserAdmin_WithPassword(t *testing.T) {
+	app := testApp(t)
+	ctx := context.Background()
+	currentUser := testUser(t, app, "test_updusr_pw_admin", "sysadmin", "pass1234")
+	target := testUser(t, app, "test_updusr_pw_tgt", "conferente", "pass1234")
+	u, err := app.updateUserAdmin(ctx, currentUser.ID, target.ID, "gerente", "newpassword123")
+	if err != nil {
+		t.Fatalf("updateUserAdmin with password: %v", err)
+	}
+	if u.Role != "gerente" {
+		t.Errorf("role = %q, want gerente", u.Role)
+	}
+	// Verify password was updated (hash changed)
+	var hash string
+	app.pg.QueryRowContext(ctx, `SELECT password FROM users WHERE id=$1`, target.ID).Scan(&hash)
+	if hash == "" {
+		t.Error("password hash should not be empty")
+	}
+}
+
+// --- bulkActivityDetails tests ---
+
+func TestBulkActivityDetails_Success(t *testing.T) {
+	app := testApp(t)
+	ctx := context.Background()
+	user := testUser(t, app, "test_bulkdet_svc", "gerente", "pass1234")
+	var id1, id2 int
+	app.pg.QueryRowContext(ctx,
+		`INSERT INTO atividades (empresa, seqlocal, usuario_id, data_fim) VALUES ($1,$2,$3,now()) RETURNING id`,
+		"005", 5, user.ID).Scan(&id1)
+	app.pg.ExecContext(ctx,
+		`INSERT INTO atividade_enderecos (atividade_id, rua, predio) VALUES ($1,$2,$3)`,
+		id1, "RUA E", "PREDIO 5")
+	app.pg.QueryRowContext(ctx,
+		`INSERT INTO atividades (empresa, seqlocal, usuario_id, data_fim) VALUES ($1,$2,$3,now()) RETURNING id`,
+		"006", 6, user.ID).Scan(&id2)
+	app.pg.ExecContext(ctx,
+		`INSERT INTO atividade_enderecos (atividade_id, rua, predio) VALUES ($1,$2,$3)`,
+		id2, "RUA F", "PREDIO 6")
+	bundles := app.bulkActivityDetails(ctx, []int{id1, id2})
+	if len(bundles) != 2 {
+		t.Errorf("expected 2 bundles, got %d", len(bundles))
+	}
+}
+
+func TestBulkActivityDetails_EmptyIDs(t *testing.T) {
+	app := testApp(t)
+	bundles := app.bulkActivityDetails(context.Background(), []int{})
+	if bundles == nil {
+		t.Error("expected empty slice, got nil")
+	}
+	if len(bundles) != 0 {
+		t.Errorf("expected 0 bundles, got %d", len(bundles))
+	}
+}
+
 func TestAPIDashboardBulkPrint(t *testing.T) {
 	app := testApp(t)
 	ctx := context.Background()
