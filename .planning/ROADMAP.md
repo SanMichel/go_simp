@@ -105,7 +105,19 @@ Warehouse activity scanning and logistics dashboard. Existing codebase migrated 
   4. Error handling types (`AppError`, `handleError`) have dedicated unit tests
   5. All existing routes return correct status codes and response shapes; overall coverage ≥ 70%
 
-**Plans**: TBD
+**Plans**: 4 plans in 4 waves
+Plans:
+**Wave 1** *(no dependencies)*
+- [ ] 06-01-PLAN.md — Foundation: testhelper.go + error handling + validator + middleware tests (no DB, always runs)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 06-02-PLAN.md — CSRF/mapping/utility + non-DB handler tests (no DB, always runs)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 06-03-PLAN.md — Auth integration + DB query tests (TEST_POSTGRES_URL gated)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 06-04-PLAN.md — DB handler tests + route integration + coverage gate (TEST_POSTGRES_URL gated)
 
 ### Phase 7: Handler Decomposition
 
@@ -145,6 +157,6 @@ Warehouse activity scanning and logistics dashboard. Existing codebase migrated 
 | 3. Dashboard | — | Complete | 2026-06-08 |
 | 4. Admin | — | Complete | 2026-06-08 |
 | 5. Error Handling Foundation | 4/4 | Complete | 2026-06-09 |
-| 6. Testing Infrastructure | 0/0 | Planning | - |
+| 6. Testing Infrastructure | 0/4 | Planning | - |
 | 7. Handler Decomposition | 0/0 | Planning | - |
 | 8. ES5 Compatibility | 0/0 | Planning | - |
