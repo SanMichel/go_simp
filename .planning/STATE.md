@@ -78,7 +78,7 @@ Current milestone: v1.1 Simplify & Stabilize — simplify codebase, improve main
 - Phase 8 marked as UI phase for downstream tooling
 
 ### Active Todos
-- [ ] Create plan for Phase 5
+- [x] Create plan for Phase 5
 
 ### Blockers
 - None
