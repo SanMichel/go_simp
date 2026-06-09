@@ -136,6 +136,21 @@ None — no external service configuration required. All changes use Go standard
 - All handler code after this plan should use `a.handleError(w, r, err)` instead of inline `writeJSON(...)` or `http.Error(...)`
 - All input validation after this plan should use `Validator` chainable methods
 
+## Self-Check: PASSED
+
+All 5 committed files verified present on disk:
+- `cmd/server/errors.go` — FOUND
+- `cmd/server/validation.go` — FOUND
+- `cmd/server/templates/components/error_toast.html` — FOUND
+- `cmd/server/utils.go` — FOUND
+- `cmd/server/main.go` — FOUND
+
+All 4 commits verified in git log:
+- `778ba13` — feat(05-01): create errors.go
+- `b3a6523` — feat(05-01): create validation.go and error_toast.html
+- `8f4f98e` — feat(05-01): fix writeJSON, add recoveryMiddleware, migrate to slog
+- `b1c068b` — docs(05-01): complete error handling foundation plan
+
 ---
 
 *Phase: 05-error-handling-foundation*
