@@ -48,15 +48,16 @@ Deferred to future release. Tracked but not in current roadmap.
 
 ### Device Compatibility
 
-- **CAM-01**: Server-side barcode decoding endpoint using `gozxing`
-- **CAM-02**: Canvas capture JS sends frames to decode endpoint
-- **CAM-03**: Manual barcode input fallback
 - **ES5-05**: Admin and dashboard JS files rewritten to ES5
 
 ### Architecture
 
 - **HAND-07**: Remaining smaller handlers decomposed
 - **HAND-08**: Service layer extracted into dedicated files
+
+### Stack
+
+- **gozxing**: Removed as dependency — not needed (hardware scanners decode barcodes at device level)
 
 ## Out of Scope
 
@@ -66,40 +67,41 @@ Deferred to future release. Tracked but not in current roadmap.
 | Offline support | Too complex for current scope; revisit in v2 |
 | Architectural split into sub-packages | Keep single `main` package; improve within |
 | Third-party JS frameworks | stdlib + HTMX stays; no npm/polyfill deps |
-| Camera barcode scanning (COMPAT-03) | Deferred to v2; needs real-device HTTPS validation first |
+| Camera barcode scanning | Devices have built-in hardware scanners that feed input as keyboard text — no camera API needed |
+| gozxing / server-side barcode decode | Unnecessary — hardware scanners already decode barcodes at input level |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ERR-01 | — | Pending |
-| ERR-02 | — | Pending |
-| ERR-03 | — | Pending |
-| ERR-04 | — | Pending |
-| ERR-05 | — | Pending |
-| ERR-06 | — | Pending |
-| ERR-07 | — | Pending |
-| TEST-01 | — | Pending |
-| TEST-02 | — | Pending |
-| TEST-03 | — | Pending |
-| TEST-04 | — | Pending |
-| TEST-05 | — | Pending |
-| TEST-06 | — | Pending |
-| HAND-01 | — | Pending |
-| HAND-02 | — | Pending |
-| HAND-03 | — | Pending |
-| HAND-04 | — | Pending |
-| HAND-05 | — | Pending |
-| HAND-06 | — | Pending |
-| ES5-01 | — | Pending |
-| ES5-02 | — | Pending |
-| ES5-03 | — | Pending |
-| ES5-04 | — | Pending |
+| ERR-01 | Phase 5 | Pending |
+| ERR-02 | Phase 5 | Pending |
+| ERR-03 | Phase 5 | Pending |
+| ERR-04 | Phase 5 | Pending |
+| ERR-05 | Phase 5 | Pending |
+| ERR-06 | Phase 5 | Pending |
+| ERR-07 | Phase 5 | Pending |
+| TEST-01 | Phase 6 | Pending |
+| TEST-02 | Phase 6 | Pending |
+| TEST-03 | Phase 6 | Pending |
+| TEST-04 | Phase 6 | Pending |
+| TEST-05 | Phase 6 | Pending |
+| TEST-06 | Phase 6 | Pending |
+| HAND-01 | Phase 7 | Pending |
+| HAND-02 | Phase 7 | Pending |
+| HAND-03 | Phase 7 | Pending |
+| HAND-04 | Phase 7 | Pending |
+| HAND-05 | Phase 7 | Pending |
+| HAND-06 | Phase 5 | Pending |
+| ES5-01 | Phase 8 | Pending |
+| ES5-02 | Phase 5 | Pending |
+| ES5-03 | Phase 8 | Pending |
+| ES5-04 | Phase 8 | Pending |
 
 **Coverage:**
 - v1 requirements: 23 total
-- Mapped to phases: 0
-- Unmapped: 23 ⚠️
+- Mapped to phases: 23
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-06-08*
