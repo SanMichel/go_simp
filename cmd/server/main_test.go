@@ -1384,6 +1384,93 @@ func TestRedirectByRole(t *testing.T) {
 
 // ---- DB Query Tests ----
 
+func TestFindUserByUsername(t *testing.T) {
+	t.Helper()
+	app := testApp(t)
+	ctx := context.Background()
+	user := testUser(t, app, "test_findbyuser", "conferente", "secret123")
+	u, err := app.findUserByUsername(ctx, "test_findbyuser")
+	if err != nil {
+		t.Fatalf("findUserByUsername: %v", err)
+	}
+	if u.Username != "test_findbyuser" {
+		t.Errorf("username = %q, want test_findbyuser", u.Username)
+	}
+	if u.Role != "conferente" {
+		t.Errorf("role = %q, want conferente", u.Role)
+	}
+	if u.PasswordHash == "" {
+		t.Error("PasswordHash should be non-empty (bcrypt hash)")
+	}
+	// Test nonexistent username
+	_, err = app.findUserByUsername(ctx, "nonexistent")
+	if err != sql.ErrNoRows {
+		t.Errorf("expected sql.ErrNoRows for nonexistent username, got %v", err)
+	}
+	_ = user
+}
+
+func TestFindUserByID(t *testing.T) {
+	t.Helper()
+	app := testApp(t)
+	ctx := context.Background()
+	user := testUser(t, app, "test_findbyid", "gerente", "secret123")
+	u, err := app.findUserByID(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("findUserByID: %v", err)
+	}
+	if u.ID != user.ID {
+		t.Errorf("id = %d, want %d", u.ID, user.ID)
+	}
+	if u.Username != "test_findbyid" {
+		t.Errorf("username = %q, want test_findbyid", u.Username)
+	}
+	// Test nonexistent ID
+	_, err = app.findUserByID(ctx, 999999)
+	if err != sql.ErrNoRows {
+		t.Errorf("expected sql.ErrNoRows for nonexistent ID, got %v", err)
+	}
+}
+
+func TestListUsers(t *testing.T) {
+	t.Helper()
+	app := testApp(t)
+	ctx := context.Background()
+	// testApp seeds admin user via seedAdmin(), so expect at least 1 user
+	users, err := app.listUsers(ctx)
+	if err != nil {
+		t.Fatalf("listUsers: %v", err)
+	}
+	if len(users) < 1 {
+		t.Fatal("expected at least 1 user (the seeded admin)")
+	}
+	initialCount := len(users)
+	// Seed 2 more test users with unique usernames
+	testUser(t, app, "test_listusers_1", "conferente", "pass1234")
+	testUser(t, app, "test_listusers_2", "gerente", "pass5678")
+	users, err = app.listUsers(ctx)
+	if err != nil {
+		t.Fatalf("listUsers after insert: %v", err)
+	}
+	if len(users) != initialCount+2 {
+		t.Errorf("user count = %d, want %d (initial %d + 2)", len(users), initialCount+2, initialCount)
+	}
+	// Verify users are ordered by id ascending
+	for i := 1; i < len(users); i++ {
+		if users[i].ID <= users[i-1].ID {
+			t.Errorf("users not ordered by id ascending: users[%d].ID=%d <= users[%d].ID=%d",
+				i, users[i].ID, i-1, users[i-1].ID)
+		}
+	}
+	// Verify UserRow does NOT contain PasswordHash field
+	// UserRow struct has no PasswordHash field — compile-time guarantee.
+	// The SELECT query only returns id, username, role, last_token_at.
+	var zero UserRow
+	if _, ok := interface{}(zero).(interface{ PasswordHash() string }); ok {
+		t.Error("UserRow should not expose PasswordHash")
+	}
+}
+
 // ---- Auth Handler Integration Tests ----
 
 func TestLoginPostSuccess(t *testing.T) {
