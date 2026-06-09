@@ -358,7 +358,7 @@ func (a *App) apiProdutoConsulta(w http.ResponseWriter, r *http.Request, u *User
 	seqlocal, _ := strconv.Atoi(r.URL.Query().Get("seqlocal"))
 	p, err := a.findFullProductByCode(ctx, codigo, empresa, seqlocal)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Produto não encontrado"})
+		a.handleError(w, r, &AppError{Code: ErrCodeNotFound, Message: "Produto não encontrado", HTTPStatus: http.StatusNotFound, Err: err})
 		return
 	}
 	writeJSON(w, http.StatusOK, mapOracleProduct(p))
@@ -371,12 +371,12 @@ func (a *App) apiProdutoConsultaDescricao(w http.ResponseWriter, r *http.Request
 	empresa, _ := strconv.Atoi(r.URL.Query().Get("empresa"))
 	seqlocal, _ := strconv.Atoi(r.URL.Query().Get("seqlocal"))
 	if q == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Parâmetro 'q' é obrigatório"})
+		a.handleError(w, r, &AppError{Code: ErrCodeBadRequest, Message: "Parâmetro 'q' é obrigatório", HTTPStatus: http.StatusBadRequest})
 		return
 	}
 	products, err := a.findProductsByDescription(ctx, q, empresa, seqlocal)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro na consulta"})
+		a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro na consulta", HTTPStatus: http.StatusInternalServerError, Err: err})
 		return
 	}
 	resp := make([]OracleProductResponse, len(products))
@@ -395,7 +395,7 @@ func (a *App) apiProdutosLocal(w http.ResponseWriter, r *http.Request, u *User) 
 	predio := r.URL.Query().Get("predio")
 	rows, err := a.ora.QueryContext(ctx, `SELECT mrlp.SEQPRODUTO, mrlp.NRORUA, mrlp.NROPREDIO, mrlp.ESTOQUE FROM CONSINCO.MRL_PRODLOCAL mrlp WHERE mrlp.SEQLOCAL = :1 AND mrlp.ESTOQUE > 0 AND mrlp.NRORUA = :2 AND mrlp.NROPREDIO = :3 AND mrlp.NROEMPRESA = :4`, seqlocal, rua, predio, empresa)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao buscar produtos"})
+		a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro ao buscar produtos", HTTPStatus: http.StatusInternalServerError, Err: err})
 		return
 	}
 	defer rows.Close()
@@ -434,11 +434,11 @@ func (a *App) apiLastInfo(w http.ResponseWriter, r *http.Request, u *User) {
 func (a *App) apiFinalizar(w http.ResponseWriter, r *http.Request, u *User) {
 	var req finalizeReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSON inválido"})
+		a.handleError(w, r, &AppError{Code: ErrCodeBadRequest, Message: "JSON inválido", HTTPStatus: http.StatusBadRequest})
 		return
 	}
 	if req.Empresa == 0 || req.Rua == "" || req.SeqLocal == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Campos obrigatórios ausentes"})
+		a.handleError(w, r, &AppError{Code: ErrCodeBadRequest, Message: "Campos obrigatórios ausentes", HTTPStatus: http.StatusBadRequest})
 		return
 	}
 	if len(req.Predio) == 0 {
@@ -447,7 +447,7 @@ func (a *App) apiFinalizar(w http.ResponseWriter, r *http.Request, u *User) {
 	empresa := strconv.Itoa(req.Empresa)
 	tx, err := a.pg.BeginTx(r.Context(), nil)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao iniciar transação"})
+		a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro ao iniciar transação", HTTPStatus: http.StatusInternalServerError, Err: err})
 		return
 	}
 	defer tx.Rollback()
@@ -455,12 +455,12 @@ func (a *App) apiFinalizar(w http.ResponseWriter, r *http.Request, u *User) {
 	var activityID int
 	err = tx.QueryRowContext(r.Context(), `INSERT INTO atividades (empresa, seqlocal, usuario_id, data_fim) VALUES ($1,$2,$3,now()) RETURNING id`, empresa, req.SeqLocal, u.ID).Scan(&activityID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao salvar atividade"})
+		a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro ao salvar atividade", HTTPStatus: http.StatusInternalServerError, Err: err})
 		return
 	}
 	for _, p := range req.Predio {
 		if _, err := tx.ExecContext(r.Context(), `INSERT INTO atividade_enderecos (atividade_id, rua, predio) VALUES ($1,$2,$3)`, activityID, req.Rua, p); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao salvar endereço"})
+			a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro ao salvar endereço", HTTPStatus: http.StatusInternalServerError, Err: err})
 			return
 		}
 	}
@@ -522,13 +522,12 @@ func (a *App) apiFinalizar(w http.ResponseWriter, r *http.Request, u *User) {
 		}
 		_, err = tx.ExecContext(r.Context(), `INSERT INTO produto_verificacao (atividade_id, seqproduto, empresa, rua_lida, predio_lido, status, reposicao, estoque, desccompleta) VALUES ($1,$2,$3,$4,$5,$6,$7,0,$8)`, activityID, seq, empresa, ruaLida, predioLido, status, reposicao, desc)
 		if err != nil {
-			log.Printf("error inserting product_verificacao: %v", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao salvar produtos"})
+			a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro ao salvar produtos", HTTPStatus: http.StatusInternalServerError, Err: err})
 			return
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao finalizar atividade"})
+		a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro ao finalizar atividade", HTTPStatus: http.StatusInternalServerError, Err: err})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "atividadeId": activityID, "dataFim": time.Now(), "divergences": divergences, "ruptures": ruptures, "replenishments": replenishments})

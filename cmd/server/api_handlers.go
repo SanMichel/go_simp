@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -177,8 +177,7 @@ func mapUser(u UserRow) APIUser {
 func (a *App) apiAdminUsersList(w http.ResponseWriter, r *http.Request, u *User) {
 	users, err := a.listUsers(r.Context())
 	if err != nil {
-		log.Printf("error: %v", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro interno do servidor"})
+		a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro interno do servidor", HTTPStatus: http.StatusInternalServerError, Err: err})
 		return
 	}
 	apiUsers := make([]APIUser, len(users))
@@ -196,18 +195,17 @@ func (a *App) apiAdminUserCreate(w http.ResponseWriter, r *http.Request, u *User
 	}
 	json.NewDecoder(r.Body).Decode(&req)
 	if req.Username == "" || len(req.Password) < 8 || !validRole(req.Role) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Dados inválidos"})
+		a.handleError(w, r, &AppError{Code: ErrCodeValidation, Message: "Dados inválidos", HTTPStatus: http.StatusBadRequest})
 		return
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao criar hash"})
+		a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro interno do servidor", HTTPStatus: http.StatusInternalServerError})
 		return
 	}
 	_, err = a.pg.ExecContext(r.Context(), `INSERT INTO users (username, password, role) VALUES ($1,$2,$3)`, req.Username, string(hash), req.Role)
 	if err != nil {
-		log.Printf("error: %v", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro interno do servidor"})
+		a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro interno do servidor", HTTPStatus: http.StatusInternalServerError, Err: err})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "OK"})
@@ -217,16 +215,16 @@ func (a *App) apiAdminUserUpdate(w http.ResponseWriter, r *http.Request, u *User
 	id, _ := strconv.Atoi(r.PathValue("id"))
 
 	if id == u.ID {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Não é possível editar o próprio usuário"})
+		a.handleError(w, r, &AppError{Code: ErrCodeBadRequest, Message: "Não é possível editar o próprio usuário", HTTPStatus: http.StatusBadRequest})
 		return
 	}
 	target, err := a.findUserByID(r.Context(), id)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Usuário não encontrado"})
+		a.handleError(w, r, &AppError{Code: ErrCodeNotFound, Message: "Usuário não encontrado", HTTPStatus: http.StatusNotFound})
 		return
 	}
 	if target.Role == "sysadmin" && u.Role != "sysadmin" {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Sem permissão"})
+		a.handleError(w, r, &AppError{Code: ErrCodeForbidden, Message: "Sem permissão", HTTPStatus: http.StatusForbidden})
 		return
 	}
 
@@ -236,22 +234,21 @@ func (a *App) apiAdminUserUpdate(w http.ResponseWriter, r *http.Request, u *User
 	}
 	json.NewDecoder(r.Body).Decode(&req)
 	if !validRole(req.Role) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Role inválido"})
+		a.handleError(w, r, &AppError{Code: ErrCodeValidation, Message: "Role inválido", HTTPStatus: http.StatusBadRequest})
 		return
 	}
 	if req.Password != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if err != nil {
-			log.Printf("error hashing password: %v", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao criar hash"})
+			a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro interno do servidor", HTTPStatus: http.StatusInternalServerError})
 			return
 		}
 		if _, err := a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, password=$2, last_token_at=now() WHERE id=$3`, req.Role, string(hash), id); err != nil {
-			log.Printf("error updating user %d: %v", id, err)
+			slog.WarnContext(r.Context(), "failed to update user", "user_id", id, "error", err)
 		}
 	} else {
 		if _, err := a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, last_token_at=now() WHERE id=$2`, req.Role, id); err != nil {
-			log.Printf("error updating user %d: %v", id, err)
+			slog.WarnContext(r.Context(), "failed to update user (no password change)", "user_id", id, "error", err)
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "OK"})
@@ -260,8 +257,7 @@ func (a *App) apiAdminUserUpdate(w http.ResponseWriter, r *http.Request, u *User
 func (a *App) apiDashboardFilters(w http.ResponseWriter, r *http.Request, u *User) {
 	options, err := a.listFilterOptions(r.Context())
 	if err != nil {
-		log.Printf("error: %v", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro interno do servidor"})
+		a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro interno do servidor", HTTPStatus: http.StatusInternalServerError, Err: err})
 		return
 	}
 	// FilterOptions can just have lowercase JSON tags
@@ -283,8 +279,7 @@ func (a *App) apiDashboardFilters(w http.ResponseWriter, r *http.Request, u *Use
 func (a *App) apiDashboardActivities(w http.ResponseWriter, r *http.Request, u *User) {
 	activities, err := a.listActivities(r.Context(), parseFilters(r), 200)
 	if err != nil {
-		log.Printf("error: %v", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro interno do servidor"})
+		a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro interno do servidor", HTTPStatus: http.StatusInternalServerError, Err: err})
 		return
 	}
 	apiActivities := make([]APIActivity, len(activities))
@@ -298,7 +293,7 @@ func (a *App) apiDashboardActivityDetails(w http.ResponseWriter, r *http.Request
 	id, _ := strconv.Atoi(r.PathValue("id"))
 	act, items, err := a.activityDetailsData(r.Context(), id)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Não encontrado"})
+		a.handleError(w, r, &AppError{Code: ErrCodeNotFound, Message: "Atividade não encontrada", HTTPStatus: http.StatusNotFound})
 		return
 	}
 	apiAct := mapActivity(act)
@@ -362,7 +357,7 @@ func (a *App) apiDashboardBulkPrint(w http.ResponseWriter, r *http.Request, u *U
 	json.NewDecoder(r.Body).Decode(&req)
 	for _, id := range req.Ids {
 		if _, err := a.pg.ExecContext(r.Context(), `UPDATE atividades SET impresso=true WHERE id=$1`, id); err != nil {
-			log.Printf("warn: failed to set impresso for activity %d: %v", id, err)
+			slog.WarnContext(r.Context(), "failed to set impresso", "activity_id", id, "error", err)
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "OK"})
