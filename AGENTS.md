@@ -48,3 +48,6 @@ The application is modularized into multiple files within the single `main` pack
 - `tmp/` is a reference copy of the old app — **do not modify**
 - `bin/` and `.tmp/` are build artifacts (gitignored).
 - Roles: `conferente`, `gerente`, `sysadmin`
+
+## Important
+- On any change of structure or behavior of the codebase, always update `AGENTS.md` to keep the information up to date.
