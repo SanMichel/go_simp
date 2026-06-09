@@ -126,13 +126,19 @@ Plans:
 **Requirements**: HAND-01, HAND-02, HAND-03, HAND-04, HAND-05
 **Success Criteria** (what must be TRUE):
 
-  1. `apiFinalizar` (~100 lines) is decomposed into a thin handler + service functions
-  2. The next 3 largest handlers by line count are similarly decomposed
-  3. Extracted service functions never touch `http.Request` or `http.ResponseWriter`
-  4. Handlers are thin adapters (10-20 lines), delegating to service functions
-  5. All existing tests pass before and after decomposition (no behavior changes)
+   1. `apiFinalizar` (~100 lines) is decomposed into a thin handler + service functions
+   2. The next 3 largest handlers by line count are similarly decomposed
+   3. Extracted service functions never touch `http.Request` or `http.ResponseWriter`
+   4. Handlers are thin adapters (10-20 lines), delegating to service functions
+   5. All existing tests pass before and after decomposition (no behavior changes)
 
-**Plans**: TBD
+**Plans**: 2 plans in 2 waves
+Plans:
+**Wave 1** *(no dependencies)*
+- [ ] 07-01-PLAN.md — apiFinalizar decomposition: FinalizarResult/FlatBundle types, finalizeActivity service, thin handler, service tests (HAND-01)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 07-02-PLAN.md — Remaining 3 handlers: updateUserAdmin shared service, adminUpdateUser/apiAdminUserUpdate thin adapters, bulkActivityDetails service, apiDashboardBulkDetails thin adapter, service tests (HAND-02)
 
 ### Phase 8: ES5 Compatibility
 
@@ -158,5 +164,5 @@ Plans:
 | 4. Admin | — | Complete | 2026-06-08 |
 | 5. Error Handling Foundation | 4/4 | Complete | 2026-06-09 |
 | 6. Testing Infrastructure | 0/4 | Planning | - |
-| 7. Handler Decomposition | 0/0 | Planning | - |
+| 7. Handler Decomposition | 0/2 | Planning | - |
 | 8. ES5 Compatibility | 0/0 | Planning | - |
