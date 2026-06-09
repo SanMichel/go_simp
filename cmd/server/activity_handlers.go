@@ -144,37 +144,25 @@ func (a *App) apiLastInfo(w http.ResponseWriter, r *http.Request, u *User) {
 	writeJSON(w, http.StatusOK, map[string]any{"dataFim": dataFim.Time})
 }
 
-func (a *App) apiFinalizar(w http.ResponseWriter, r *http.Request, u *User) {
-	var req finalizeReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		a.handleError(w, r, &AppError{Code: ErrCodeBadRequest, Message: "JSON inválido", HTTPStatus: http.StatusBadRequest})
-		return
-	}
-	if req.Empresa == 0 || req.Rua == "" || req.SeqLocal == 0 {
-		a.handleError(w, r, &AppError{Code: ErrCodeBadRequest, Message: "Campos obrigatórios ausentes", HTTPStatus: http.StatusBadRequest})
-		return
-	}
+func (a *App) finalizeActivity(ctx context.Context, req finalizeReq, userID int) (*FinalizarResult, error) {
 	if len(req.Predio) == 0 {
 		req.Predio = []string{""}
 	}
 	empresa := strconv.Itoa(req.Empresa)
-	tx, err := a.pg.BeginTx(r.Context(), nil)
+	tx, err := a.pg.BeginTx(ctx, nil)
 	if err != nil {
-		a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro ao iniciar transação", HTTPStatus: http.StatusInternalServerError, Err: err})
-		return
+		return nil, &AppError{Code: ErrCodeInternal, Message: "Erro ao iniciar transação", HTTPStatus: http.StatusInternalServerError, Err: err}
 	}
 	defer tx.Rollback()
 
 	var activityID int
-	err = tx.QueryRowContext(r.Context(), `INSERT INTO atividades (empresa, seqlocal, usuario_id, data_fim) VALUES ($1,$2,$3,now()) RETURNING id`, empresa, req.SeqLocal, u.ID).Scan(&activityID)
+	err = tx.QueryRowContext(ctx, `INSERT INTO atividades (empresa, seqlocal, usuario_id, data_fim) VALUES ($1,$2,$3,now()) RETURNING id`, empresa, req.SeqLocal, userID).Scan(&activityID)
 	if err != nil {
-		a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro ao salvar atividade", HTTPStatus: http.StatusInternalServerError, Err: err})
-		return
+		return nil, &AppError{Code: ErrCodeInternal, Message: "Erro ao salvar atividade", HTTPStatus: http.StatusInternalServerError, Err: err}
 	}
 	for _, p := range req.Predio {
-		if _, err := tx.ExecContext(r.Context(), `INSERT INTO atividade_enderecos (atividade_id, rua, predio) VALUES ($1,$2,$3)`, activityID, req.Rua, p); err != nil {
-			a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro ao salvar endereço", HTTPStatus: http.StatusInternalServerError, Err: err})
-			return
+		if _, err := tx.ExecContext(ctx, `INSERT INTO atividade_enderecos (atividade_id, rua, predio) VALUES ($1,$2,$3)`, activityID, req.Rua, p); err != nil {
+			return nil, &AppError{Code: ErrCodeInternal, Message: "Erro ao salvar endereço", HTTPStatus: http.StatusInternalServerError, Err: err}
 		}
 	}
 
@@ -201,7 +189,11 @@ func (a *App) apiFinalizar(w http.ResponseWriter, r *http.Request, u *User) {
 		expectedSeqs[p.SeqProduto] = true
 		seqSet[p.SeqProduto] = true
 	}
-	var divergences, ruptures, replenishments []map[string]any
+	result := &FinalizarResult{
+		Divergences:    make([]map[string]any, 0),
+		Ruptures:       make([]map[string]any, 0),
+		Replenishments: make([]map[string]any, 0),
+	}
 	for seq := range seqSet {
 		status := "RUPTURA"
 		reposicao := false
@@ -213,35 +205,57 @@ func (a *App) apiFinalizar(w http.ResponseWriter, r *http.Request, u *User) {
 			ruaLida = sql.NullString{String: req.Rua, Valid: true}
 			predioLido = sql.NullString{String: firstNonEmpty(rp.Predio, req.Predio[0]), Valid: true}
 			if rp.Status == "DIVERGENTE" || rp.Status == "ERRO" {
-				divergences = append(divergences, map[string]any{
+				result.Divergences = append(result.Divergences, map[string]any{
 					"seqproduto":   seq,
 					"ean":          rp.EAN,
 					"desccompleta": rp.Desccompleta,
 				})
 			}
 			if rp.Reposicao {
-				replenishments = append(replenishments, map[string]any{
+				result.Replenishments = append(result.Replenishments, map[string]any{
 					"seqproduto":   seq,
 					"ean":          rp.EAN,
 					"desccompleta": rp.Desccompleta,
 				})
 			}
 		} else if expectedSeqs[seq] {
-			ruptures = append(ruptures, map[string]any{"seqproduto": seq})
+			result.Ruptures = append(result.Ruptures, map[string]any{"seqproduto": seq})
 		}
 		desc := sql.NullString{}
 		if rp, ok := read[seq]; ok && rp.Desccompleta != "" {
 			desc = sql.NullString{String: rp.Desccompleta, Valid: true}
 		}
-		_, err = tx.ExecContext(r.Context(), `INSERT INTO produto_verificacao (atividade_id, seqproduto, empresa, rua_lida, predio_lido, status, reposicao, estoque, desccompleta) VALUES ($1,$2,$3,$4,$5,$6,$7,0,$8)`, activityID, seq, empresa, ruaLida, predioLido, status, reposicao, desc)
+		_, err = tx.ExecContext(ctx, `INSERT INTO produto_verificacao (atividade_id, seqproduto, empresa, rua_lida, predio_lido, status, reposicao, estoque, desccompleta) VALUES ($1,$2,$3,$4,$5,$6,$7,0,$8)`, activityID, seq, empresa, ruaLida, predioLido, status, reposicao, desc)
 		if err != nil {
-			a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro ao salvar produtos", HTTPStatus: http.StatusInternalServerError, Err: err})
-			return
+			return nil, &AppError{Code: ErrCodeInternal, Message: "Erro ao salvar produtos", HTTPStatus: http.StatusInternalServerError, Err: err}
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro ao finalizar atividade", HTTPStatus: http.StatusInternalServerError, Err: err})
+		return nil, &AppError{Code: ErrCodeInternal, Message: "Erro ao finalizar atividade", HTTPStatus: http.StatusInternalServerError, Err: err}
+	}
+	result.ActivityID = activityID
+	result.DataFim = time.Now()
+	return result, nil
+}
+
+func (a *App) apiFinalizar(w http.ResponseWriter, r *http.Request, u *User) {
+	var req finalizeReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		a.handleError(w, r, &AppError{Code: ErrCodeBadRequest, Message: "JSON inválido", HTTPStatus: http.StatusBadRequest})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "atividadeId": activityID, "dataFim": time.Now(), "divergences": divergences, "ruptures": ruptures, "replenishments": replenishments})
+	if req.Empresa == 0 || req.Rua == "" || req.SeqLocal == 0 {
+		a.handleError(w, r, &AppError{Code: ErrCodeBadRequest, Message: "Campos obrigatórios ausentes", HTTPStatus: http.StatusBadRequest})
+		return
+	}
+	result, err := a.finalizeActivity(r.Context(), req, u.ID)
+	if err != nil {
+		a.handleError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success": true, "atividadeId": result.ActivityID,
+		"dataFim": result.DataFim, "divergences": result.Divergences,
+		"ruptures": result.Ruptures, "replenishments": result.Replenishments,
+	})
 }
