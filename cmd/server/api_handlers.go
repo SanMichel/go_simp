@@ -213,43 +213,15 @@ func (a *App) apiAdminUserCreate(w http.ResponseWriter, r *http.Request, u *User
 
 func (a *App) apiAdminUserUpdate(w http.ResponseWriter, r *http.Request, u *User) {
 	id, _ := strconv.Atoi(r.PathValue("id"))
-
-	if id == u.ID {
-		a.handleError(w, r, &AppError{Code: ErrCodeBadRequest, Message: "Não é possível editar o próprio usuário", HTTPStatus: http.StatusBadRequest})
-		return
-	}
-	target, err := a.findUserByID(r.Context(), id)
-	if err != nil {
-		a.handleError(w, r, &AppError{Code: ErrCodeNotFound, Message: "Usuário não encontrado", HTTPStatus: http.StatusNotFound})
-		return
-	}
-	if target.Role == "sysadmin" && u.Role != "sysadmin" {
-		a.handleError(w, r, &AppError{Code: ErrCodeForbidden, Message: "Sem permissão", HTTPStatus: http.StatusForbidden})
-		return
-	}
-
 	var req struct {
 		Role     string `json:"role"`
 		Password string `json:"password"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
-	if !validRole(req.Role) {
-		a.handleError(w, r, &AppError{Code: ErrCodeValidation, Message: "Role inválido", HTTPStatus: http.StatusBadRequest})
+	_, err := a.updateUserAdmin(r.Context(), u.ID, id, req.Role, req.Password)
+	if err != nil {
+		a.handleError(w, r, err)
 		return
-	}
-	if req.Password != "" {
-		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-		if err != nil {
-			a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro interno do servidor", HTTPStatus: http.StatusInternalServerError})
-			return
-		}
-		if _, err := a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, password=$2, last_token_at=now() WHERE id=$3`, req.Role, string(hash), id); err != nil {
-			slog.WarnContext(r.Context(), "failed to update user", "user_id", id, "error", err)
-		}
-	} else {
-		if _, err := a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, last_token_at=now() WHERE id=$2`, req.Role, id); err != nil {
-			slog.WarnContext(r.Context(), "failed to update user (no password change)", "user_id", id, "error", err)
-		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "OK"})
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -71,46 +72,57 @@ func (a *App) adminUserRow(w http.ResponseWriter, r *http.Request) {
 	a.render(w, "user_row", map[string]any{"RowUser": u})
 }
 
+func (a *App) updateUserAdmin(ctx context.Context, currentUserID, targetID int, role, password string) (*UserRow, error) {
+	if targetID == currentUserID {
+		return nil, &AppError{Code: ErrCodeBadRequest, Message: "Não é possível editar o próprio usuário", HTTPStatus: http.StatusBadRequest}
+	}
+	if !validRole(role) {
+		return nil, &AppError{Code: ErrCodeBadRequest, Message: "Role inválido", HTTPStatus: http.StatusBadRequest}
+	}
+	target, err := a.findUserByID(ctx, targetID)
+	if err != nil {
+		return nil, &AppError{Code: ErrCodeNotFound, Message: "Usuário não encontrado", HTTPStatus: http.StatusNotFound, Err: err}
+	}
+	currentUser, err := a.findUserByID(ctx, currentUserID)
+	if err != nil {
+		return nil, &AppError{Code: ErrCodeNotFound, Message: "Usuário não encontrado", HTTPStatus: http.StatusNotFound, Err: err}
+	}
+	if target.Role == "sysadmin" && currentUser.Role != "sysadmin" {
+		return nil, &AppError{Code: ErrCodeForbidden, Message: "Sem permissão", HTTPStatus: http.StatusForbidden}
+	}
+	if password != "" {
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			return nil, &AppError{Code: ErrCodeInternal, Message: "Erro interno do servidor", HTTPStatus: http.StatusInternalServerError}
+		}
+		if _, err := a.pg.ExecContext(ctx, `UPDATE users SET role=$1, password=$2, last_token_at=now() WHERE id=$3`, role, string(hash), targetID); err != nil {
+			slog.ErrorContext(ctx, "error updating user", "user_id", targetID, "error", err)
+		}
+	} else {
+		if _, err := a.pg.ExecContext(ctx, `UPDATE users SET role=$1, last_token_at=now() WHERE id=$2`, role, targetID); err != nil {
+			slog.ErrorContext(ctx, "error updating user", "user_id", targetID, "error", err)
+		}
+	}
+	found, err := a.findUserByID(ctx, targetID)
+	if err != nil {
+		return nil, err
+	}
+	return &UserRow{ID: found.ID, Username: found.Username, Role: found.Role, LastTokenAt: found.LastTokenAt}, nil
+}
+
 func (a *App) adminUpdateUser(w http.ResponseWriter, r *http.Request) {
 	currentUser := r.Context().Value(ctxUser).(*User)
 	id, _ := strconv.Atoi(r.PathValue("id"))
-	if id == currentUser.ID {
-		a.handleError(w, r, &AppError{Code: ErrCodeBadRequest, Message: "Não é possível editar o próprio usuário", HTTPStatus: http.StatusBadRequest})
-		return
-	}
 	if err := r.ParseForm(); err != nil {
 		a.handleError(w, r, &AppError{Code: ErrCodeBadRequest, Message: "Erro ao processar formulário", HTTPStatus: http.StatusBadRequest, Err: err})
 		return
 	}
 	role := r.FormValue("role")
 	password := r.FormValue("password")
-	if !validRole(role) {
-		a.handleError(w, r, &AppError{Code: ErrCodeBadRequest, Message: "Role inválido", HTTPStatus: http.StatusBadRequest})
-		return
-	}
-	target, err := a.findUserByID(r.Context(), id)
+	u, err := a.updateUserAdmin(r.Context(), currentUser.ID, id, role, password)
 	if err != nil {
-		a.handleError(w, r, &AppError{Code: ErrCodeNotFound, Message: "Usuário não encontrado", HTTPStatus: http.StatusNotFound, Err: err})
+		a.handleError(w, r, err)
 		return
 	}
-	if target.Role == "sysadmin" && currentUser.Role != "sysadmin" {
-		a.handleError(w, r, &AppError{Code: ErrCodeForbidden, Message: "Sem permissão", HTTPStatus: http.StatusForbidden})
-		return
-	}
-	if password != "" {
-		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-		if err != nil {
-			a.handleError(w, r, &AppError{Code: ErrCodeInternal, Message: "Erro interno do servidor", HTTPStatus: http.StatusInternalServerError})
-			return
-		}
-		if _, err := a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, password=$2, last_token_at=now() WHERE id=$3`, role, string(hash), id); err != nil {
-			slog.ErrorContext(r.Context(), "error updating user", "user_id", id, "error", err)
-		}
-	} else {
-		if _, err := a.pg.ExecContext(r.Context(), `UPDATE users SET role=$1, last_token_at=now() WHERE id=$2`, role, id); err != nil {
-			slog.ErrorContext(r.Context(), "error updating user", "user_id", id, "error", err)
-		}
-	}
-	u, _ := a.findUserByID(r.Context(), id)
 	a.render(w, "user_row", map[string]any{"RowUser": u})
 }
