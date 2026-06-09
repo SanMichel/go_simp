@@ -999,28 +999,17 @@ go tool cover -html=/tmp/c.out -o /tmp/coverage.html
 | A4 | `RequestIDMiddleware` with `crypto/rand` produces unique IDs in tests | Request ID Tests | LOW — `crypto/rand` never blocks in test environments; 8 bytes = 64 bits entropy is sufficient for test uniqueness |
 | A5 | 70% coverage is achievable with the described approach | Coverage Target | MEDIUM — depends on the number of executable statements vs type declarations. Models.go adds minimal executable lines. Oracle-dependent code (~400 lines) must be excluded. See Coverage Analysis above |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Should we add a `go test -short` compatibility layer?**
-   - What we know: Tier 2 (middleware tests) and Tier 1 (pure unit tests) run with zero dependencies.
-   - What's unclear: Do we need `testing.Short()` to skip Tier 2 or is env-var gating sufficient?
-   - Recommendation: **Use `TEST_POSTGRES_URL` env var gating only.** `testing.Short()` is unnecessary because Tier 1 and Tier 2 have no deps. Adding `-short` logic adds complexity for no benefit. The idiomatic Go pattern is `if os.Getenv("TEST_POSTGRES_URL") == "" { t.Skip(...) }`.
+1. **Should we add a `go test -short` compatibility layer?** — RESOLVED: Use `TEST_POSTGRES_URL` env var gating only. `testing.Short()` is unnecessary because Tier 1 and Tier 2 have no deps. Adding `-short` logic adds complexity for no benefit.
 
-2. **How do we handle test data primary key conflicts between tests?**
-   - What we know: Postgres uses `BIGSERIAL` for `users.id`, so each inserted user gets a new id. But tests that assume `id=1` will break if `seedAdmin` already created the admin user (id=1).
-   - Recommendation: Use `testUser()` helper that returns the User struct with the actual DB-assigned ID. Never hardcode expected user IDs. For the admin user seeded by `seedAdmin()`, either reseed in test setup or query by username.
+2. **How do we handle test data primary key conflicts between tests?** — RESOLVED: Use `testUser()` helper that returns the User struct with the actual DB-assigned ID. Never hardcode expected user IDs.
 
-3. **Should we wrap tests in transactions for isolation?**
-   - What we know: `t.Cleanup()` with `DELETE` statements cleans data but doesn't reset sequences (BIGSERIAL keeps incrementing).
-   - Recommendation: **Delete-based cleanup is sufficient** for this project's test volume. Sequence bloat on a test DB is negligible. Transaction-based isolation (BEGIN + ROLLBACK per test) is more robust but requires passing `*sql.Tx` instead of `*sql.DB` to handlers, which don't accept transactions. For handler-level tests (which call `a.pg` directly), `DELETE` cleanup is the only practical approach.
+3. **Should we wrap tests in transactions for isolation?** — RESOLVED: Delete-based cleanup is sufficient. Transaction isolation requires `*sql.Tx`, incompatible with handlers that use `*sql.DB` directly.
 
-4. **Can we test middleware functions that call `currentUser` without a DB?**
-   - What we know: `requireRole` and `requireAPIRole` always call `currentUser`, which always calls `findUserByID(ctx, p.ID)`.
-   - Recommendation: **No.** These functions require a DB by design. Use `testApp(t)` and `testUser()` to set up real auth sessions. This is the standard Go integration testing pattern.
+4. **Can we test middleware functions that call `currentUser` without a DB?** — RESOLVED: No — these functions require a DB by design. Use `testApp(t)` and `testUser()` to set up real auth sessions.
 
-5. **Should csrfMiddleware tests be expanded?**
-   - What we know: `csrfMiddleware` has 73.7% coverage but only tests cookie-based CSRF on `/api/` routes.
-   - Recommendation: Add tests for (a) Origin header checking, (b) non-API POST without csrf cookie, (c) PATCH/DELETE methods, (d) `/login` and `/api/auth/login` skip patterns.
+5. **Should csrfMiddleware tests be expanded?** — RESOLVED: Add tests for Origin header checking, non-API POST without csrf cookie, PATCH/DELETE methods, and login route skip patterns.
 
 ## Environment Availability
 

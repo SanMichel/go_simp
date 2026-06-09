@@ -23,7 +23,7 @@ On first start, auto-migrates tables and seeds `admin` as `sysadmin` with random
 go test ./cmd/server
 ```
 
-All tests are in `cmd/server/main_test.go`. No external framework, no integration prerequisites.
+Test helper factories are in `cmd/server/testhelper.go`. Integration tests requiring a Postgres instance are gated by `TEST_POSTGRES_URL` env var (gracefully skipped with `t.Skip` when absent).
 
 ## Codebase Map
 
@@ -38,6 +38,7 @@ The application is modularized into multiple files within the single `main` pack
 - `cmd/server/api_handlers.go`: Admin + dashboard API handlers (user CRUD, dashboard data, bulk print).
 - `cmd/server/errors.go`: `AppError` type, error code constants, `handleError()` dispatcher, `requestIDMiddleware`, `getRequestID()`.
 - `cmd/server/validation.go`: `Validator` type with chainable methods (Required, MinLength, ValidRole, Positive).
+- `cmd/server/testhelper.go`: Test helper factories — `testDB()`, `testApp()`, `testUser()`, `testToken()`, `cleanupTestData()`.
 - `cmd/server/auth.go`: Authentication logic, session cookie management, and role-based access control middleware.
 - `cmd/server/db.go`: Database connectivity, auto-migrations, seeders, and specialized data queries (Postgres and Oracle).
 - `cmd/server/utils.go`: Utility functions — environment config, `writeJSON` (buffer-first), `recoveryMiddleware`, slog-based log middleware.
