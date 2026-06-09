@@ -8,6 +8,15 @@ A warehouse activity scanning and product logistics dashboard. Warehouse workers
 
 Warehouse workers must be able to scan and register activities reliably without the system getting in their way.
 
+## Current Milestone: v1.1 Simplify & Stabilize
+
+**Goal:** Simplify the codebase, improve maintainability, and assure compatibility with warehouse devices running non-Chrome browsers.
+
+**Target features:**
+- Handler decomposition and code organization
+- Comprehensive test coverage and standardized error handling
+- ES5-compatible frontend for legacy warehouse browsers
+
 ## Requirements
 
 ### Validated
@@ -24,15 +33,28 @@ Warehouse workers must be able to scan and register activities reliably without 
 
 ### Active
 
-(Define via /gsd-new-milestone)
+- [ ] **CODE-01**: Split overgrown handler functions into smaller, focused functions
+- [ ] **CODE-02**: Standardize error handling (consistent format, logging, user feedback)
+- [ ] **CODE-03**: Unify JSON response patterns across all handlers
+- [ ] **CODE-04**: Standardize input validation for form/JSON endpoints
+- [ ] **MAINT-01**: Improve file organization within `cmd/server/`
+- [ ] **MAINT-02**: Achieve comprehensive test coverage (70%+)
+- [ ] **MAINT-03**: Establish consistent middleware chain pattern
+- [ ] **COMPAT-01**: Ensure ES5 compatibility for non-Chrome warehouse browsers
+- [ ] **COMPAT-02**: Optimize page weight/render for low-end devices
 
 ### Out of Scope
 
-(Specific exclusions TBD)
+- Native mobile apps — web-first; PWAs fill the gap for now
+- Offline support — too complex for current scope; revisit in v2
+- Architectural split into sub-packages — keep single `main` package, improve within
+- Third-party frameworks — stdlib + HTMX stays
 
 ## Context
 
 This is an existing Go monolith in `cmd/server/` using the standard library exclusively. The codebase was migrated from a TypeScript/Bun/Drizzle stack; a reference copy lives in `tmp/`. There are no external web frameworks — only `net/http` + `database/sql` with pgx (Postgres) and go-ora (Oracle). Templates use Go `html/template` with HTMX for interactivity.
+
+Warehouse devices run non-Chrome browsers (ES5-only) and have built-in barcode scanners that feed input as keyboard text. The single `main` package has grown large; handler functions need decomposition.
 
 ## Constraints
 
@@ -51,5 +73,22 @@ This is an existing Go monolith in `cmd/server/` using the standard library excl
 | Migrate from TypeScript | Performance, simpler deployment (single binary), fewer runtime deps | ✓ Good |
 | HTMX over SPA framework | Server-rendered HTML with sprinkles of JS — simpler than full SPA | ✓ Good |
 
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+**After each phase transition** (via `/gsd-transition`):
+1. Requirements invalidated? → Move to Out of Scope with reason
+2. Requirements validated? → Move to Validated with phase reference
+3. New requirements emerged? → Add to Active
+4. Decisions to log? → Add to Key Decisions
+5. "What This Is" still accurate? → Update if drifted
+
+**After each milestone** (via `/gsd-complete-milestone`):
+1. Full review of all sections
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state
+
 ---
-*Last updated: 2026-06-08 after initialization*
+*Last updated: 2026-06-08 after milestone v1.1 initialization*
