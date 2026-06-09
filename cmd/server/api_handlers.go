@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -285,24 +286,10 @@ func (a *App) apiDashboardActivityDetails(w http.ResponseWriter, r *http.Request
 	})
 }
 
-func (a *App) apiDashboardBulkDetails(w http.ResponseWriter, r *http.Request, u *User) {
-	var req struct {
-		Ids []int `json:"ids"`
-	}
-	json.NewDecoder(r.Body).Decode(&req)
-	type FlatBundle struct {
-		ID       int                      `json:"id"`
-		Empresa  string                   `json:"empresa"`
-		Username string                   `json:"username"`
-		DataFim  *time.Time               `json:"dataFim"`
-		Rua      string                   `json:"rua"`
-		Predio   string                   `json:"predio"`
-		Impresso bool                     `json:"impresso"`
-		Items    []APIProductVerification `json:"items"`
-	}
+func (a *App) bulkActivityDetails(ctx context.Context, ids []int) []FlatBundle {
 	var bundles []FlatBundle
-	for _, id := range req.Ids {
-		act, items, err := a.activityDetailsData(r.Context(), id)
+	for _, id := range ids {
+		act, items, err := a.activityDetailsData(ctx, id)
 		if err == nil {
 			apiAct := mapActivity(act)
 			apiItems := make([]APIProductVerification, len(items))
@@ -319,6 +306,15 @@ func (a *App) apiDashboardBulkDetails(w http.ResponseWriter, r *http.Request, u 
 	if bundles == nil {
 		bundles = []FlatBundle{}
 	}
+	return bundles
+}
+
+func (a *App) apiDashboardBulkDetails(w http.ResponseWriter, r *http.Request, u *User) {
+	var req struct {
+		Ids []int `json:"ids"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+	bundles := a.bulkActivityDetails(r.Context(), req.Ids)
 	writeJSON(w, http.StatusOK, bundles)
 }
 
