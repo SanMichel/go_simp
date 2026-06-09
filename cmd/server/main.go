@@ -7,6 +7,7 @@ import (
 	"errors"
 	"html/template"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -47,7 +48,7 @@ func main() {
 	oracleReader.db.SetConnMaxIdleTime(cfg.OracleIdleTime)
 	oracleReader.db.SetConnMaxLifetime(time.Hour)
 	if err := oracleReader.db.PingContext(ctx); err != nil {
-		log.Printf("warning: oracle ping failed")
+		slog.Warn("oracle ping failed", "error", err)
 	}
 
 	app := &App{cfg: cfg, pg: pg, ora: oracleReader, tpl: parseTemplates(), loginLimiter: newRateLimiter()}
@@ -58,18 +59,26 @@ func main() {
 		log.Fatal(err)
 	}
 
+	var slogHandler slog.Handler
+	if cfg.AppEnv == "production" {
+		slogHandler = slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})
+	} else {
+		slogHandler = slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})
+	}
+	slog.SetDefault(slog.New(slogHandler))
+
 	mux := http.NewServeMux()
 	app.routes(mux)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      app.csrfMiddleware(app.securityHeaders(app.log(mux))),
+		Handler:      app.csrfMiddleware(app.securityHeaders(app.log(recoveryMiddleware(requestIDMiddleware(mux))))),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 	go func() {
-		log.Printf("server ready on http://localhost%s", srv.Addr)
+		slog.Info("server started", "addr", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal(err)
 		}
@@ -77,7 +86,7 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Println("shutting down…")
+	slog.Info("shutting down")
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer shutdownCancel()
 	_ = srv.Shutdown(shutdownCtx)
@@ -135,7 +144,7 @@ func (a *App) routes(mux *http.ServeMux) {
 func (a *App) render(w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := a.tpl.ExecuteTemplate(w, name, data); err != nil {
-		log.Printf("error: %v", err)
+		slog.Error("template render failed", "template", name, "error", err)
 		http.Error(w, "Erro interno do servidor", http.StatusInternalServerError)
 	}
 }
@@ -143,7 +152,7 @@ func (a *App) style(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
 	b, err := templatesFS.ReadFile("templates/style.css")
 	if err != nil {
-		log.Printf("error reading style.css: %v", err)
+		slog.Error("failed to read static file", "file", "style.css", "error", err)
 		http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
 		return
 	}
@@ -153,7 +162,7 @@ func (a *App) adminStyle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
 	b, err := templatesFS.ReadFile("templates/admin.css")
 	if err != nil {
-		log.Printf("error reading admin.css: %v", err)
+		slog.Error("failed to read static file", "file", "admin.css", "error", err)
 		http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
 		return
 	}
@@ -164,7 +173,7 @@ func (a *App) serveJS(filename string) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 		b, err := templatesFS.ReadFile("templates/" + filename)
 		if err != nil {
-			log.Printf("error reading %s: %v", filename, err)
+			slog.Error("failed to read static file", "file", filename, "error", err)
 			http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
 			return
 		}

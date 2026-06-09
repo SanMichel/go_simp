@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -132,7 +135,13 @@ func (a *App) log(next http.Handler) http.Handler {
 		start := time.Now()
 		lw := &logWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(lw, r)
-		log.Printf("%s %s %d %s", r.Method, r.URL.Path, lw.status, time.Since(start).Truncate(time.Millisecond))
+		slog.Info("request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", lw.status,
+			"duration", time.Since(start).Truncate(time.Millisecond).String(),
+			"request_id", getRequestID(r.Context()),
+		)
 	})
 }
 
@@ -145,6 +154,25 @@ func (w *logWriter) WriteHeader(status int) {
 	w.status = status
 	w.ResponseWriter.WriteHeader(status)
 }
+
+// recoveryMiddleware catches panics and returns HTTP 500.
+func recoveryMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				slog.ErrorContext(r.Context(), "panic recovered",
+					"panic", rec,
+					"path", r.URL.Path,
+					"method", r.Method,
+				)
+				os.Stderr.Write(debug.Stack())
+				http.Error(w, "Erro interno do servidor", http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
 func validRole(role string) bool {
 	return role == "sysadmin" || role == "gerente" || role == "conferente"
 }
@@ -176,8 +204,15 @@ func parseFilters(r *http.Request) ActivityFilters {
 }
 func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	buf := new(bytes.Buffer)
+	if err := json.NewEncoder(buf).Encode(data); err != nil {
+		slog.Error("writeJSON encode failed", "error", err, "status", status)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"internal error"}`))
+		return
+	}
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(data)
+	_, _ = w.Write(buf.Bytes())
 }
 
 type rateEntry struct {
