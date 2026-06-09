@@ -58,12 +58,17 @@ Warehouse activity scanning and logistics dashboard. Existing codebase migrated 
 **Depends on**: Nothing (first phase of v1.1)
 **Requirements**: ERR-01, ERR-02, ERR-03, ERR-04, ERR-05, ERR-06, ERR-07, HAND-06, ES5-02
 **Success Criteria** (what must be TRUE):
-  1. All handlers deliver errors through the centralized `handleError()` dispatcher instead of inline formatting
-  2. Input validation across all form/JSON endpoints uses the standardized `Validator` type
-  3. Error logs include request ID and structured fields; panic recovery middleware prevents server crashes
-  4. `writeJSON` encodes before writing HTTP headers (no silent 200-on-failure responses)
-  5. Code is organized into domain-grouped files (errors.go, validation.go, activity_handlers.go, dashboard_handlers.go, admin_handlers.go)
-**Plans**: TBD
+   1. All handlers deliver errors through the centralized `handleError()` dispatcher instead of inline formatting
+   2. Input validation across all form/JSON endpoints uses the standardized `Validator` type
+   3. Error logs include request ID and structured fields; panic recovery middleware prevents server crashes
+   4. `writeJSON` encodes before writing HTTP headers (no silent 200-on-failure responses)
+   5. Code is organized into domain-grouped files (errors.go, validation.go, activity_handlers.go, dashboard_handlers.go, admin_handlers.go)
+**Plans**: 4 plans in 3 waves
+Plans:
+- [ ] 05-01-PLAN.md — Foundation: AppError, handleError, Validator, writeJSON fix, slog, recovery middleware
+- [ ] 05-02-PLAN.md — handlers.go + auth.go error path migration
+- [ ] 05-03-PLAN.md — api_handlers.go error path migration
+- [ ] 05-04-PLAN.md — File reorganization (HAND-06) + ES5-02 (DOMPurify→escHtml)
 
 ### Phase 6: Testing Infrastructure
 **Goal**: Comprehensive test coverage provides a safety net for refactoring and future changes
@@ -108,7 +113,7 @@ Warehouse activity scanning and logistics dashboard. Existing codebase migrated 
 | 2. Activity Scanning | — | Complete | 2026-06-08 |
 | 3. Dashboard | — | Complete | 2026-06-08 |
 | 4. Admin | — | Complete | 2026-06-08 |
-| 5. Error Handling Foundation | 0/0 | Planning | - |
+| 5. Error Handling Foundation | 0/4 | Planning | - |
 | 6. Testing Infrastructure | 0/0 | Planning | - |
 | 7. Handler Decomposition | 0/0 | Planning | - |
 | 8. ES5 Compatibility | 0/0 | Planning | - |
