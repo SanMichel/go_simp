@@ -1876,6 +1876,133 @@ func TestAPIFinalizarWithReadProducts(t *testing.T) {
 	}
 }
 
+// ---- Service Function Tests ----
+
+func TestFinalizeActivity_Success(t *testing.T) {
+	app := testApp(t)
+	ctx := context.Background()
+	user := testUser(t, app, "test_fin_svc_ok", "conferente", "pass1234")
+	req := finalizeReq{
+		Empresa:          1,
+		SeqLocal:         1,
+		Rua:              "RUA A",
+		Predio:           []string{"PREDIO 1"},
+		ReadProducts:     nil,
+		ExpectedProducts: nil,
+	}
+	result, err := app.finalizeActivity(ctx, req, user.ID)
+	if err != nil {
+		t.Fatalf("finalizeActivity: %v", err)
+	}
+	if result.ActivityID <= 0 {
+		t.Errorf("ActivityID should be positive, got %d", result.ActivityID)
+	}
+	if result.DataFim.IsZero() {
+		t.Error("DataFim should be set")
+	}
+	if len(result.Divergences) != 0 {
+		t.Errorf("expected 0 divergences, got %d", len(result.Divergences))
+	}
+	if len(result.Ruptures) != 0 {
+		t.Errorf("expected 0 ruptures, got %d", len(result.Ruptures))
+	}
+	if len(result.Replenishments) != 0 {
+		t.Errorf("expected 0 replenishments, got %d", len(result.Replenishments))
+	}
+	// Verify DB has the activity
+	var count int
+	app.pg.QueryRowContext(ctx, `SELECT COUNT(*) FROM atividades WHERE id=$1`, result.ActivityID).Scan(&count)
+	if count != 1 {
+		t.Errorf("activity should exist in DB, count=%d", count)
+	}
+}
+
+func TestFinalizeActivity_MissingFields(t *testing.T) {
+	app := testApp(t)
+	ctx := context.Background()
+	user := testUser(t, app, "test_fin_svc_missing", "conferente", "pass1234")
+	// Empresa=0 (missing empresa) — service converts to "0" string and proceeds
+	req := finalizeReq{
+		Empresa:          0,
+		SeqLocal:         1,
+		Rua:              "RUA A",
+		Predio:           []string{"PREDIO 1"},
+		ReadProducts:     nil,
+		ExpectedProducts: nil,
+	}
+	result, err := app.finalizeActivity(ctx, req, user.ID)
+	if err != nil {
+		t.Fatalf("finalizeActivity with missing fields should not error: %v", err)
+	}
+	if result.ActivityID <= 0 {
+		t.Errorf("ActivityID should be positive, got %d", result.ActivityID)
+	}
+	// Verify DB has the activity with empresa='0'
+	var empresa string
+	app.pg.QueryRowContext(ctx, `SELECT empresa FROM atividades WHERE id=$1`, result.ActivityID).Scan(&empresa)
+	if empresa != "0" {
+		t.Errorf("empresa should be '0', got %q", empresa)
+	}
+}
+
+func TestFinalizeActivity_DivergenceDetection(t *testing.T) {
+	app := testApp(t)
+	ctx := context.Background()
+	user := testUser(t, app, "test_fin_svc_div", "conferente", "pass1234")
+	req := finalizeReq{
+		Empresa:  2,
+		SeqLocal: 2,
+		Rua:      "RUA B",
+		Predio:   []string{"PREDIO 2"},
+		ReadProducts: []struct {
+			SeqProduto   int    `json:"seqproduto"`
+			EAN          string `json:"ean"`
+			Rua          string `json:"rua"`
+			Predio       string `json:"predio"`
+			Status       string `json:"status"`
+			Reposicao    bool   `json:"reposicao"`
+			Desccompleta string `json:"desccompleta"`
+		}{
+			{SeqProduto: 100, EAN: "123456", Rua: "RUA B", Predio: "PREDIO 2", Status: "OK", Reposicao: false, Desccompleta: "Produto OK"},
+			{SeqProduto: 200, EAN: "789012", Rua: "RUA B", Predio: "PREDIO 2", Status: "DIVERGENTE", Reposicao: false, Desccompleta: "Produto Divergente"},
+			{SeqProduto: 300, EAN: "345678", Rua: "RUA B", Predio: "PREDIO 2", Status: "ERRO", Reposicao: true, Desccompleta: "Produto Erro"},
+		},
+		ExpectedProducts: []struct {
+			SeqProduto int `json:"seqproduto"`
+		}{
+			{SeqProduto: 100},
+			{SeqProduto: 200},
+			{SeqProduto: 300},
+			{SeqProduto: 400},
+		},
+	}
+	result, err := app.finalizeActivity(ctx, req, user.ID)
+	if err != nil {
+		t.Fatalf("finalizeActivity: %v", err)
+	}
+	if result.ActivityID <= 0 {
+		t.Errorf("ActivityID should be positive, got %d", result.ActivityID)
+	}
+	// Divergences: seq 200 (DIVERGENTE) and 300 (ERRO) should be classified
+	if len(result.Divergences) != 2 {
+		t.Errorf("expected 2 divergences, got %d: %v", len(result.Divergences), result.Divergences)
+	}
+	// Ruptures: seq 400 is expected but not read
+	if len(result.Ruptures) != 1 {
+		t.Errorf("expected 1 rupture, got %d: %v", len(result.Ruptures), result.Ruptures)
+	}
+	// Replenishments: seq 300 has reposicao=true
+	if len(result.Replenishments) != 1 {
+		t.Errorf("expected 1 replenishment, got %d: %v", len(result.Replenishments), result.Replenishments)
+	}
+	// Verify DB records
+	var count int
+	app.pg.QueryRowContext(ctx, `SELECT COUNT(*) FROM produto_verificacao WHERE atividade_id=$1`, result.ActivityID).Scan(&count)
+	if count != 4 {
+		t.Errorf("expected 4 produto_verificacao records, got %d", count)
+	}
+}
+
 // ---- Admin Handler Tests ----
 
 func TestAdminPageAuthenticated(t *testing.T) {
