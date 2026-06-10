@@ -1,0 +1,291 @@
+{{define "atividades"}}
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIMP — Atividades</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+
+<body>
+    <!-- Global Loader -->
+    <div id="loader" class="hidden">
+        <div class="spinner"></div>
+        <p style="margin-top: 1rem; color: #4f46e5; font-weight: bold;">Aguarde...</p>
+    </div>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="flex items-center gap-2">
+                <div style="background: #4f46e5; padding: 4px; border-radius: 6px; color: white; display: flex;">
+                    <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="m7.5 4.27 9 5.15" />
+                        <path
+                            d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
+                        <path d="m3.3 7 8.7 5 8.7-5" />
+                        <path d="M12 22V12" />
+                    </svg>
+                </div>
+                <h1 id="header-title" style="font-size: 1.125rem; font-weight: bold; display: flex; align-items: baseline;">
+                    SIMP Atividades
+                    <span id="header-user" style="font-size: 0.75rem; color: #64748b; margin-left: 0.5rem; font-weight: 600; opacity: 0.8;"></span>
+                </h1>
+            </div>
+            <div id="header-actions" class="hidden flex items-center gap-3">
+                <button type="button" id="btn-logout" style="background:none; border:none; cursor:pointer; color:#64748b;">🚪</button>
+            </div>
+        </header>
+
+        <main class="main-content">
+
+            <!-- Screen: Start Activity -->
+            <div id="screen-start" class="screen hidden flex-col">
+                <div class="card">
+                    <h2 class="text-xl font-bold"
+                        style="margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                        <span>▶️</span> Nova Verificação
+                    </h2>
+                    <form id="form-start">
+                        <div class="form-group">
+                            <label class="label text-xs uppercase text-slate-400">Empresa</label>
+                            <select id="start-empresa" class="select" required></select>
+                        </div>
+                        <div class="form-group">
+                            <label class="label text-xs uppercase text-slate-400">Local</label>
+                            <select id="start-local" class="select" required></select>
+                        </div>
+                        <div class="flex gap-4">
+                            <div class="form-group" style="flex: 1;">
+                                <label class="label text-xs uppercase text-slate-400">Rua</label>
+                                <input type="number" id="start-rua" class="input" placeholder="Ex: 4" required>
+                            </div>
+                            <div class="form-group" style="flex: 1;">
+                                <label class="label text-xs uppercase text-slate-400">Prédio</label>
+                                <input type="number" id="start-predio" class="input" placeholder="Ex: 24" required>
+                            </div>
+                        </div>
+                        <p id="start-error" class="text-red-500 text-sm text-center hidden" style="margin-top: 1rem;">
+                        </p>
+                        <div id="last-activity-info" class="text-xs text-slate-500 text-center" style="margin-top: 0.5rem; min-height: 1rem;"></div>
+                        <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">Iniciar
+                            Atividade</button>
+                        <button type="button" id="btn-start-consulta" class="btn btn-ghost" style="margin-top: 0.5rem; width: 100%; border: 1px solid #e2e8f0;">
+                            🔍 Consulta de Produto
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Screen: Scanning -->
+            <div id="screen-scanning" class="screen hidden flex-col" style="height: 100%;">
+                <div class="scanning-header flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <button type="button" id="btn-back-to-start" class="btn-header-icon" title="Voltar">⬅️</button>
+                        <h2 id="scan-address" class="text-lg font-bold">- | -</h2>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button type="button" id="btn-go-consulta" class="btn-header-icon" title="Consultar Produto">🔍</button>
+                        <button type="button" class="btn-header-icon js-btn-logout" title="Sair">🚪</button>
+                    </div>
+                </div>
+
+                <form id="form-scan" class="flex gap-2" style="margin-bottom: 0.75rem;">
+                    <div class="input-group" style="flex: 1;">
+                        <input type="tel" id="scan-input" class="input input-with-icon-left" placeholder="Escanear ou digitar EAN/DUN"
+                            autocomplete="off" inputmode="none">
+                        <button type="button" id="btn-toggle-keyboard" class="keyboard-toggle" title="Teclado Virtual">⌨️</button>
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="width: auto; padding: 0 1rem;">OK</button>
+                </form>
+
+                <div id="scan-feedback" style="min-height: 1.5rem; margin-bottom: 0.5rem; font-size: 0.875rem;"></div>
+
+                <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
+                    <h3 class="text-xs font-bold text-slate-400 uppercase" style="margin-bottom: 0.25rem;">Lidos na Atividade</h3>
+                    <div id="scan-history" style="max-height: 8rem; overflow-y: auto;"></div>
+                </div>
+
+                <button type="button" id="btn-finalize" class="btn"
+                    style="background: #0f172a; color: white; margin-top: 1rem;">Finalizar Atividade</button>
+            </div>
+
+
+
+            <!-- Screen: Building Switch (same street, different building) -->
+            <div id="screen-predio-switch" class="screen hidden flex-col justify-center text-center" style="height: 100%;">
+                <div class="scanning-header flex items-center justify-between" style="margin-bottom: 1.5rem;">
+                    <h2 class="text-xl font-bold">Troca de Prédio</h2>
+                    <button type="button" class="btn-header-icon js-btn-logout" title="Sair">🚪</button>
+                </div>
+                <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🔄</div>
+                <h2 class="text-xl font-bold" style="margin-bottom: 0.25rem;">Prédio diferente</h2>
+                <p id="predio-switch-desc" class="text-slate-500 text-sm" style="margin-bottom: 1rem;"></p>
+
+                <div class="flex flex-col gap-3">
+                    <button type="button" id="btn-predio-switch-yes" class="btn btn-primary" style="display: flex; flex-direction: column; align-items: center; padding: 0.75rem;">
+                        <span style="font-size: 0.75rem; opacity: 0.9;">Estou no prédio</span>
+                        <span id="predio-switch-new" style="font-size: 2rem; line-height: 1;"></span>
+                    </button>
+                    
+                    <button type="button" id="btn-predio-switch-no" class="btn btn-secondary" style="display: flex; flex-direction: column; align-items: center; padding: 0.75rem; border-width: 2px;">
+                        <span style="font-size: 0.75rem; opacity: 0.9;">Continuo no prédio</span>
+                        <span id="predio-switch-current" style="font-size: 2rem; line-height: 1;"></span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Screen: Product Consultation -->
+            <div id="screen-consulta" class="screen hidden flex-col" style="height: 100%;">
+                <div class="scanning-header flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <button type="button" id="btn-consulta-back" class="btn-header-icon" title="Voltar">⬅️</button>
+                        <h2 class="text-lg font-bold">Consulta <span id="consulta-header-loja" style="font-size: 0.75rem; font-weight: 600; color: #64748b; margin-left: 0.25rem;"></span></h2>
+                    </div>
+                </div>
+
+                <div class="flex gap-1" style="margin-top: 0.75rem; margin-bottom: 0.5rem;">
+                    <button type="button" id="btn-consulta-mode-codigo" class="btn btn-sm btn-primary" style="flex: 1; font-size: 0.75rem; padding: 0.35rem;">Código</button>
+                    <button type="button" id="btn-consulta-mode-descricao" class="btn btn-sm" style="flex: 1; font-size: 0.75rem; padding: 0.35rem; background: #e2e8f0; color: #475569;">Descrição</button>
+                </div>
+
+                <form id="form-consulta" class="flex gap-2" style="margin-bottom: 0.75rem;">
+                    <div class="input-group" style="flex: 1;">
+                        <input type="tel" id="consulta-input" class="input input-with-icon-left" placeholder="Escanear ou digitar EAN/DUN"
+                            autocomplete="off" inputmode="none">
+                        <button type="button" id="btn-consulta-toggle-keyboard" class="keyboard-toggle" title="Teclado Virtual">⌨️</button>
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="width: auto; padding: 0 1rem;">Buscar</button>
+                </form>
+                <p class="text-center text-slate-500" style="font-size: 0.65rem; margin-bottom: 0.75rem; font-style: italic;">
+                    * Os resultados são para a unidade do produto
+                </p>
+
+                <div id="consulta-result" class="hidden">
+                    <div class="card" style="margin-bottom: 1rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.5rem;">
+                            <h3 id="consulta-nome" class="font-bold text-lg text-indigo-600" style="flex: 1; line-height: 1.2;"></h3>
+                            <span id="consulta-loja-name" style="background: #f1f5f9; color: #475569; padding: 2px 6px; border-radius: 4px; font-size: 0.625rem; font-weight: 700; text-transform: uppercase; white-space: nowrap;"></span>
+                        </div>
+                        <div class="grid-details">
+                            <div class="detail-item">
+                                <span class="detail-label">SEQ</span>
+                                <span id="consulta-seq" class="detail-value"></span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">MARCA</span>
+                                <span id="consulta-marca" class="detail-value"></span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">ESTOQUE</span>
+                                <span id="consulta-estoque" class="detail-value"></span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">DIAS ESTOQUE</span>
+                                <span id="consulta-dias" class="detail-value"></span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">MDV</span>
+                                <span id="consulta-mdv" class="detail-value"></span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">PREÇO</span>
+                                <span id="consulta-preco" class="detail-value"></span>
+                            </div>
+                        </div>
+                        <div class="mt-3 text-xs text-slate-500">
+                            <p>Última Entrada: <span id="consulta-entrada"></span></p>
+                            <p>Última Venda: <span id="consulta-venda"></span></p>
+                            <p style="margin-top: 0.5rem; word-break: break-all;"><strong>CÓDIGOS:</strong> <span id="consulta-codigos"></span></p>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="consulta-result-list" class="hidden" style="flex: 1; overflow-y: auto;">
+                </div>
+
+                <div id="consulta-empty" class="text-center py-8 text-slate-400">
+                    <p>Escaneie um produto para ver os detalhes</p>
+                </div>
+            </div>
+
+            <!-- Screen: Report -->
+            <div id="screen-report" class="screen hidden flex-col">
+                <div class="text-center" style="padding: 0.5rem 0;">
+                    <div style="font-size: 2.5rem; color: #10b981;">✅</div>
+                    <h2 class="text-xl font-bold">Atividade Concluída</h2>
+                    <p class="text-slate-500 text-sm mb-1">Relatório salvo com sucesso.</p>
+                    <p class="font-bold text-indigo-600 text-sm mb-4">ID da Atividade: <span id="report-id">--</span></p>
+                    
+                    <button type="button" id="btn-report-ok" class="btn btn-primary" style="margin-bottom: 1rem;">Nova Atividade</button>
+                </div>
+
+                <div class="card" style="margin-bottom: 0.5rem; border-color: #fca5a5; background-color: #fef2f2;">
+                    <h3 class="font-bold text-red-600 text-sm mb-1">❌ Rupturas (<span id="count-rup">0</span>)</h3>
+                    <div id="report-ruptures" style="max-height: 6rem; overflow-y: auto; font-size: 0.8125rem;"></div>
+                </div>
+
+                <div class="card" style="margin-bottom: 1rem; border-color: #fcd34d; background-color: #fffbeb;">
+                    <h3 class="font-bold text-amber-600 text-sm mb-1">⚠️ Divergências (<span id="count-div">0</span>)</h3>
+                    <div id="report-divergences" style="max-height: 6rem; overflow-y: auto; font-size: 0.8125rem;">
+                    </div>
+                </div>
+
+                <div class="card" style="margin-bottom: 1rem; border-color: #fbbf24; background-color: #fffbeb;">
+                    <h3 class="font-bold text-amber-700 text-sm mb-1">📦 Reposição (<span id="count-rep">0</span>)</h3>
+                    <div id="report-replenishments" style="max-height: 6rem; overflow-y: auto; font-size: 0.8125rem;"></div>
+                </div>
+
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Modal: Product Details -->
+    <div id="modal-product-detail" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 90%; width: 320px;">
+            <div class="modal-header">
+                <h3 id="product-detail-title" class="text-lg font-bold">Detalhes do Produto</h3>
+                <button type="button" class="btn-close" onclick="closeProductDetailModal()">✕</button>
+            </div>
+            <div class="modal-body" style="padding: 1rem;">
+                <div style="margin-bottom: 1rem;">
+                    <label class="text-xs font-bold text-slate-400 uppercase">Descrição</label>
+                    <p id="product-detail-desc" class="text-slate-700 font-medium" style="word-break: break-word;"></p>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div>
+                        <label class="text-xs font-bold text-slate-400 uppercase">EAN/DUN</label>
+                        <p id="product-detail-ean" class="text-slate-600"></p>
+                    </div>
+                    <div>
+                        <label class="text-xs font-bold text-slate-400 uppercase">Seq</label>
+                        <p id="product-detail-seq" class="text-slate-600"></p>
+                    </div>
+                    <div>
+                        <label class="text-xs font-bold text-slate-400 uppercase">Status</label>
+                        <p id="product-detail-status" class="text-slate-600"></p>
+                    </div>
+                    <div>
+                        <label class="text-xs font-bold text-slate-400 uppercase">Local Lido</label>
+                        <p id="product-detail-local" class="text-slate-600"></p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 1rem; border-top: 1px solid #f1f5f9; display: flex; gap: 0.5rem;">
+                <button type="button" id="btn-modal-remove" class="btn flex-1" style="background: #ef4444; color: white; border-color: #dc2626; display: none;">Remover 🗑️</button>
+                <button type="button" id="btn-modal-toggle-reposicao" class="btn btn-secondary flex-1" style="border-color: #f59e0b; color: #d97706;">Marcar Reposição 📦</button>
+                <button type="button" class="btn btn-secondary flex-1" onclick="closeProductDetailModal()">Fechar</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/atividades-utils.js"></script>
+    <script src="/atividades-scan.js"></script>
+    <script src="/atividades-consulta.js"></script>
+    <script src="/htmx.min.js"></script>
+</body>
+
+</html>{{end}}
