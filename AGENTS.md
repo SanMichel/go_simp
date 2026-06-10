@@ -42,7 +42,7 @@ The application is modularized into multiple files within the single `main` pack
 - `cmd/server/auth.go`: Authentication logic, session cookie management, and role-based access control middleware.
 - `cmd/server/db.go`: Database connectivity, auto-migrations, seeders, and specialized data queries (Postgres and Oracle).
 - `cmd/server/utils.go`: Utility functions — environment config, `writeJSON` (buffer-first), `recoveryMiddleware`, slog-based log middleware.
-- `cmd/server/main_test.go`: All test cases.
+- `cmd/server/main_test.go`: All test cases (124+ test functions across unit, integration, and handler tests).
 - `cmd/server/templates/`: Directory containing all HTML templates. They are compiled directly into the binary using `go:embed`.
 - `tmp/`: A reference copy of the old application architecture. Do not modify.
 

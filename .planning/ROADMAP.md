@@ -13,7 +13,7 @@ Warehouse activity scanning and logistics dashboard. Existing codebase migrated 
 
 - [x] **Phase 5: Error Handling Foundation** — Custom AppError, centralized error dispatch, validation, file reorg
 - [ ] **Phase 6: Testing Infrastructure** — Table-driven handler tests, auth/db/error tests, 70%+ coverage
-- [ ] **Phase 7: Handler Decomposition** — Decompose overgrown handlers into thin adapters + service layer
+- [x] **Phase 7: Handler Decomposition** — Decompose overgrown handlers into thin adapters + service layer (completed 2026-06-09)
 - [ ] **Phase 8: ES5 Compatibility** — ES5 JS rewrite, HTMX compat verification, page weight optimization
 
 ## Phase Details
@@ -108,15 +108,19 @@ Warehouse activity scanning and logistics dashboard. Existing codebase migrated 
 **Plans**: 4 plans in 4 waves
 Plans:
 **Wave 1** *(no dependencies)*
+
 - [ ] 06-01-PLAN.md — Foundation: testhelper.go + error handling + validator + middleware tests (no DB, always runs)
 
 **Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 06-02-PLAN.md — CSRF/mapping/utility + non-DB handler tests (no DB, always runs)
 
 **Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 06-03-PLAN.md — Auth integration + DB query tests (TEST_POSTGRES_URL gated)
 
 **Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 06-04-PLAN.md — DB handler tests + route integration + coverage gate (TEST_POSTGRES_URL gated)
 
 ### Phase 7: Handler Decomposition
@@ -135,10 +139,12 @@ Plans:
 **Plans**: 2 plans in 2 waves
 Plans:
 **Wave 1** *(no dependencies)*
-- [ ] 07-01-PLAN.md — apiFinalizar decomposition: FinalizarResult/FlatBundle types, finalizeActivity service, thin handler, service tests (HAND-01)
+
+- [x] 07-01-PLAN.md — apiFinalizar decomposition: FinalizarResult/FlatBundle types, finalizeActivity service, thin handler, service tests (HAND-01)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 07-02-PLAN.md — Remaining 3 handlers: updateUserAdmin shared service, adminUpdateUser/apiAdminUserUpdate thin adapters, bulkActivityDetails service, apiDashboardBulkDetails thin adapter, service tests (HAND-02)
+
+- [x] 07-02-PLAN.md — Remaining 3 handlers: updateUserAdmin shared service, adminUpdateUser/apiAdminUserUpdate thin adapters, bulkActivityDetails service, apiDashboardBulkDetails thin adapter, service tests (HAND-02)
 
 ### Phase 8: ES5 Compatibility
 
@@ -164,5 +170,5 @@ Plans:
 | 4. Admin | — | Complete | 2026-06-08 |
 | 5. Error Handling Foundation | 4/4 | Complete | 2026-06-09 |
 | 6. Testing Infrastructure | 0/4 | Planning | - |
-| 7. Handler Decomposition | 0/2 | Planning | - |
+| 7. Handler Decomposition | 2/2 | Complete   | 2026-06-09 |
 | 8. ES5 Compatibility | 0/0 | Planning | - |
