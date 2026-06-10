@@ -109,6 +109,32 @@ func (a *App) requireRole(roles string, next http.HandlerFunc) http.HandlerFunc 
 	}
 }
 
+func (a *App) requireAtividadesRole(roles string, next http.HandlerFunc) http.HandlerFunc {
+	allowed := map[string]bool{}
+	for _, r := range strings.Split(roles, ",") {
+		if r != "" {
+			allowed[r] = true
+		}
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		u, err := a.currentUser(r)
+		if err != nil {
+			http.Redirect(w, r, "/atividades/login", http.StatusFound)
+			return
+		}
+		if len(allowed) > 0 && !allowed[u.Role] {
+			if u.Role == "conferente" {
+				http.Redirect(w, r, "/atividades", http.StatusFound)
+			} else {
+				http.Redirect(w, r, "/dashboard", http.StatusFound)
+			}
+			return
+		}
+		ctx := context.WithValue(r.Context(), ctxUser, u)
+		next(w, r.WithContext(ctx))
+	}
+}
+
 func (a *App) requireAPIRole(roles string, next func(http.ResponseWriter, *http.Request, *User)) http.HandlerFunc {
 	allowed := map[string]bool{}
 	for _, r := range strings.Split(roles, ",") {

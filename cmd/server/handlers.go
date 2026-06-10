@@ -67,6 +67,15 @@ func (a *App) atividadesPage(w http.ResponseWriter, r *http.Request) {
 	a.render(w, "atividades", map[string]any{"User": u})
 }
 
+func (a *App) atividadesLoginPage(w http.ResponseWriter, r *http.Request) {
+	u, err := a.currentUser(r)
+	if err == nil {
+		a.redirectByRole(w, r, u.Role)
+		return
+	}
+	a.render(w, "atividades-login", nil)
+}
+
 func (a *App) apiMe(w http.ResponseWriter, r *http.Request) {
 	u, err := a.currentUser(r)
 	if err != nil {
