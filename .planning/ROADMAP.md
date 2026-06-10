@@ -157,7 +157,14 @@ Plans:
   2. HTMX version works on warehouse browsers (verified via device testing; falls back to 1.9.x if 2.x fails)
   3. Page weight and rendering is optimized for low-end devices (reduced payload, minimal reflows)
 
-**Plans**: TBD
+**Plans**: 2 plans in 2 waves
+Plans:
+**Wave 1**
+- [ ] 08-01-PLAN.md — Create templates + ES5 JS files (atividades-login.html, atividades.html, atividades-utils.js, atividades-login.js, atividades-scan.js, atividades-consulta.js); mark shared.js ported functions
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 08-02-PLAN.md — Go backend integration (requireAtividadesRole middleware, atividadesLoginPage handler, main.go embed/routes/ParseFS, handler tests)
+
 **UI hint**: yes
 
 ## Progress
@@ -171,4 +178,4 @@ Plans:
 | 5. Error Handling Foundation | 4/4 | Complete | 2026-06-09 |
 | 6. Testing Infrastructure | 0/4 | Planning | - |
 | 7. Handler Decomposition | 2/2 | Complete   | 2026-06-09 |
-| 8. ES5 Compatibility | 0/0 | Planning | - |
+| 8. ES5 Compatibility | 0/2 | Planning | - |
