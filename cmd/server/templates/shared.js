@@ -1,4 +1,5 @@
 // src/client/shared/api.ts
+// COPIED to templates/atividades/atividades-utils.js — TODO: remove when admin/dashboard migrate to ES5 (ES5-05)
 async function apiCall(endpoint, options = {}, onUnauthorized) {
   try {
     const method = (options.method || "GET").toUpperCase();
@@ -39,12 +40,14 @@ async function apiCall(endpoint, options = {}, onUnauthorized) {
   }
 }
 // src/client/shared/utils.ts
+// COPIED to templates/atividades/atividades-utils.js — TODO: remove when admin/dashboard migrate to ES5 (ES5-05)
 function showLoader(show) {
   const loader = document.getElementById("loader");
   if (loader) {
     loader.classList.toggle("hidden", !show);
   }
 }
+// COPIED to templates/atividades/atividades-utils.js — TODO: remove when admin/dashboard migrate to ES5 (ES5-05)
 function formatDate(dateStr) {
   if (!dateStr)
     return "";
@@ -57,6 +60,7 @@ function formatDate(dateStr) {
   const year = d.getFullYear();
   return `${day}/${month}/${year}`;
 }
+// COPIED to templates/atividades/atividades-utils.js — TODO: remove when admin/dashboard migrate to ES5 (ES5-05)
 function playBeep(type = "success") {
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -84,11 +88,13 @@ function playBeep(type = "success") {
   } catch (_e) {}
 }
 
+// COPIED to templates/atividades/atividades-utils.js — TODO: remove when admin/dashboard migrate to ES5 (ES5-05)
 function escHtml(unsafe) {
   if (unsafe == null)
     return "";
   return String(unsafe).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
 }
+// COPIED to templates/atividades/atividades-utils.js — TODO: remove when admin/dashboard migrate to ES5 (ES5-05)
 function sanitizeHtml(dirty) {
   return escHtml(dirty);
 }
