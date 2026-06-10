@@ -101,13 +101,18 @@ func (a *App) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /dashboard.js", a.serveJS("dashboard.js"))
 	mux.HandleFunc("GET /admin.js", a.serveJS("admin.js"))
 	mux.HandleFunc("GET /login.js", a.serveJS("login.js"))
+	mux.HandleFunc("GET /atividades-utils.js", a.serveJS("atividades/atividades-utils.js"))
+	mux.HandleFunc("GET /atividades-login.js", a.serveJS("atividades/atividades-login.js"))
+	mux.HandleFunc("GET /atividades-scan.js", a.serveJS("atividades/atividades-scan.js"))
+	mux.HandleFunc("GET /atividades-consulta.js", a.serveJS("atividades/atividades-consulta.js"))
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/login", http.StatusFound) })
 	mux.HandleFunc("GET /index.html", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/home", http.StatusFound) })
 	mux.HandleFunc("GET /home", a.home)
 	mux.HandleFunc("GET /login", a.loginPage)
 	mux.HandleFunc("POST /login", a.loginPost)
 	mux.HandleFunc("POST /logout", a.logout)
-	mux.HandleFunc("GET /atividades", a.requireRole("", a.atividadesPage)) // empty = any authenticated user
+	mux.HandleFunc("GET /atividades", a.requireAtividadesRole("", a.atividadesPage)) // empty = any authenticated user
+	mux.HandleFunc("GET /atividades/login", a.atividadesLoginPage)
 	mux.HandleFunc("GET /dashboard", a.requireRole("gerente,sysadmin", a.dashboardPage))
 	mux.HandleFunc("GET /dashboard/table", a.requireRole("gerente,sysadmin", a.dashboardTable))
 	mux.HandleFunc("GET /dashboard/activities/{id}/details", a.requireRole("gerente,sysadmin", a.activityDetails))
@@ -209,8 +214,8 @@ func parseTemplates() *template.Template {
 			return "N"
 		},
 	}
-	return template.Must(template.New("app").Funcs(funcs).ParseFS(templatesFS, "templates/*.html", "templates/components/*.html"))
+	return template.Must(template.New("app").Funcs(funcs).ParseFS(templatesFS, "templates/*.html", "templates/components/*.html", "templates/atividades/*.html"))
 }
 
-//go:embed templates/*.html templates/components/*.html templates/*.css templates/*.js
+//go:embed templates/*.html templates/components/*.html templates/*.css templates/*.js templates/atividades/*.html templates/atividades/*.js
 var templatesFS embed.FS
