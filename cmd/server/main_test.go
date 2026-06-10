@@ -1690,6 +1690,46 @@ func TestAtividadesPageAuthenticated(t *testing.T) {
 	}
 }
 
+func TestAtividadesLoginPage_Unauthenticated(t *testing.T) {
+	app := &App{tpl: parseTemplates()}
+	req := httptest.NewRequest(http.MethodGet, "/atividades/login", nil)
+	rec := httptest.NewRecorder()
+	app.atividadesLoginPage(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("atividadesLoginPage should return 200 when unauthenticated, got %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("content-type = %q, want text/html", ct)
+	}
+}
+
+func TestAtividadesLoginPage_AuthenticatedRedirect(t *testing.T) {
+	app := testApp(t)
+	user := testUser(t, app, "test_atividades_login_auth", "conferente", "pass1234")
+	req := httptest.NewRequest(http.MethodGet, "/atividades/login", nil)
+	ctx := context.WithValue(req.Context(), ctxUser, user)
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+	app.atividadesLoginPage(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Errorf("atividadesLoginPage should redirect (302) when authenticated, got %d", rec.Code)
+	}
+}
+
+func TestAtividadesPage_UnauthenticatedRedirect(t *testing.T) {
+	app := &App{tpl: parseTemplates()}
+	handler := app.requireAtividadesRole("", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	req := httptest.NewRequest(http.MethodGet, "/atividades", nil)
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Errorf("requireAtividadesRole should redirect (302) when unauthenticated, got %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/atividades/login" {
+		t.Errorf("redirect location = %q, want /atividades/login", loc)
+	}
+}
+
 // ---- DB Query Integration Tests ----
 
 func TestListActivities(t *testing.T) {
