@@ -668,7 +668,7 @@ xhr.send(body);
 | A5 | `DOMParser` is available (used by HTMX) | HTMX | LOW — HTMX 2.0.4 uses `DOMParser` internally. If the browser lacks it, HTXML itself fails, triggering the 1.9.x fallback. |
 | A6 | `Array.isArray` is available | ES5 patterns | LOW — ES5 feature, universally supported in our target. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does the existing `atividades.html` user flow assume `/shared.js` is loaded?**
    - What we know: The current `atividades.html` loads both `/shared.js` and `/app.js`. The new version loads only `/atividades-utils.js` + `/atividades-scan.js` + `/atividades-consulta.js` + `/htmx.min.js`.
